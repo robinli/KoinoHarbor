@@ -1,0 +1,10 @@
+.git
+.env
+.firebase
+coverage
+data/uploads
+docs
+node_modules
+npm-debug.log
+test
+

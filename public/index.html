@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="zh-Hant" data-bs-theme="light">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Koino Harbor 企業內部溝通平台 POC">
+    <title>Koino Harbor</title>
+    <link rel="stylesheet" href="/vendor/bootstrap.min.css">
+    <link rel="stylesheet" href="/styles.css">
+    <link rel="stylesheet" href="/modern.css">
+    <script src="/app.js" type="module"></script>
+  </head>
+  <body>
+    <main>
+      <section class="hero" aria-label="Koino Harbor">
+        <section class="auth-card" id="auth-card" aria-labelledby="auth-title">
+          <div id="signed-out-view">
+            <div class="login-brand"><span class="brand-mark" aria-hidden="true">⚓</span><strong>Koino Harbor</strong></div>
+            <h1 id="auth-title">登入</h1>
+            <form id="login-form">
+              <label>
+                Email
+                <input name="email" type="email" autocomplete="username" required>
+              </label>
+              <label>
+                密碼
+                <input name="password" type="password" autocomplete="current-password" required>
+              </label>
+              <button type="submit">登入</button>
+              <button class="text-button" id="forgot-password-button" type="button">忘記密碼？</button>
+              <p class="form-message" id="login-message" role="alert"></p>
+            </form>
+            <form id="forgot-password-form" hidden>
+              <p>輸入帳號 Email，我們會寄送密碼重設連結。</p>
+              <label>Email<input name="email" type="email" autocomplete="email" required></label>
+              <div class="forgot-password-actions">
+                <button class="secondary-button" id="cancel-forgot-password" type="button">返回登入</button>
+                <button type="submit">寄送重設信</button>
+              </div>
+              <p class="form-message" id="forgot-password-message" role="status"></p>
+            </form>
+          </div>
+        </section>
+
+        <div class="portal-shell" id="portal-shell" hidden>
+          <aside class="portal-sidebar" aria-label="主要導覽選單">
+            <div class="sidebar-brand">
+              <span class="sidebar-brand-mark" aria-hidden="true">⚓</span>
+              <strong>Koino Harbor</strong>
+              <button id="portal-admin-nav" type="button" data-portal-target="admin" aria-label="前往後台管理" title="後台管理" hidden>⚙️</button>
+            </div>
+            <button class="portal-user" id="portal-profile-button" type="button" aria-haspopup="dialog">
+              <span class="portal-avatar" aria-hidden="true">KH</span>
+              <span class="portal-user-details">
+                <small>登入者 · <span id="portal-user-role"></span></small>
+                <strong id="portal-user-name"></strong>
+              </span>
+              <span class="portal-user-edit" aria-hidden="true">✎</span>
+            </button>
+            <nav class="portal-nav">
+              <button class="is-active" type="button" id="portal-all-spaces" data-portal-target="spaces">全部工作區</button>
+            </nav>
+            <div class="portal-space-links" aria-label="已授權工作區">
+              <div id="portal-space-list"></div>
+            </div>
+            <nav class="portal-nav portal-nav-secondary">
+              <button type="button" id="portal-bookmarks">我的書籤</button>
+            </nav>
+            <button class="portal-logout" id="portal-logout-button" type="button">登出</button>
+          </aside>
+
+          <div class="portal-main">
+            <section class="dashboard-panel portal-view" id="dashboard-panel" data-portal-view="home">
+              <div class="portal-page-heading">
+                <div>
+                  <p class="eyebrow">Work overview</p>
+                  <h2>工作首頁</h2>
+                  <p>彙整您有權限查看的工作區最新討論。</p>
+                </div>
+                <div class="portal-heading-actions">
+                  <label>工作區<select id="dashboard-space-filter"></select></label>
+                  <button type="button" data-open-thread-dialog>新增討論</button>
+                </div>
+              </div>
+              <div class="dashboard-grid">
+                <section class="dashboard-feed" aria-labelledby="latest-discussions-title">
+                  <div class="panel-heading">
+                    <h3 id="latest-discussions-title">最新討論</h3>
+                    <button type="button" data-portal-target="discussions">查看全部</button>
+                  </div>
+                  <div class="thread-summary-list" id="dashboard-thread-list"></div>
+                </section>
+                <aside class="dashboard-rail">
+                  <section class="dashboard-widget">
+                    <p class="eyebrow">Company</p>
+                    <h3>公司資訊</h3>
+                    <div id="announcement-list"></div>
+                  </section>
+                  <section class="dashboard-widget">
+                    <p class="eyebrow">Status</p>
+                    <h3>討論狀態</h3>
+                    <div class="status-summary" id="status-summary"></div>
+                  </section>
+                </aside>
+              </div>
+            </section>
+
+            <section class="spaces-panel portal-view" id="spaces-panel" data-portal-view="spaces" aria-labelledby="spaces-title" hidden>
+              <div class="section-heading compact-heading">
+                <p class="eyebrow" id="spaces-eyebrow">Workspace overview</p>
+                <h2 id="spaces-title">工作區</h2>
+                <p id="spaces-description">顯示所有可存取工作區的資訊。</p>
+              </div>
+              <form class="space-form" id="space-form" hidden>
+                <label>名稱<input name="name" required maxlength="80" placeholder="例如：ERP 導入專案"></label>
+                <label>類型<select name="type"><option value="department">Department</option><option value="project">Project</option></select></label>
+                <label class="space-description-field">說明<input name="description" maxlength="200" placeholder="工作區用途簡述"></label>
+                <button type="submit">建立工作區</button>
+              </form>
+              <p class="form-message" id="space-message" role="alert"></p>
+              <div class="space-grid" id="space-list"></div>
+            </section>
+
+            <section class="discussion-panel portal-view" id="discussion-panel" data-portal-view="discussions" aria-labelledby="discussion-title" hidden>
+              <div class="portal-page-heading">
+                <div><p class="eyebrow">Threads</p><h2 id="discussion-title">全部討論</h2><p id="discussion-description">依工作區、狀態或關鍵字尋找工作討論。</p></div>
+                <button type="button" data-open-thread-dialog>新增討論</button>
+              </div>
+              <div class="discussion-toolbar">
+                <label>工作區<select id="thread-space-filter"></select></label>
+                <form class="search-form" id="search-form">
+                  <label>搜尋<input name="query" type="search" required placeholder="搜尋標題、內容或回覆"></label>
+                  <button type="submit">搜尋</button>
+                  <button type="button" id="show-bookmarks">我的書籤</button>
+                </form>
+              </div>
+              <p class="form-message" id="discussion-message" role="alert"></p>
+              <div class="thread-list" id="thread-list"></div>
+            </section>
+
+            <section class="admin-panel portal-view" id="admin-panel" data-portal-view="admin" hidden>
+              <div class="section-heading compact-heading">
+                <p class="eyebrow">Administration</p>
+                <h2>管理後台</h2>
+                <p>集中管理使用者角色與討論狀態。</p>
+              </div>
+              <section class="user-admin" id="user-admin" aria-labelledby="user-admin-title" hidden>
+                <nav class="admin-breadcrumb" aria-label="使用者管理路徑"><span>使用者管理</span><span aria-hidden="true">›</span><span>使用者與角色</span><span aria-hidden="true">›</span><span>新增使用者</span></nav>
+                <div class="section-heading compact-heading"><h3 id="user-admin-title">使用者與角色</h3><p>新增使用者，並管理名稱、密碼、角色及啟用狀態。</p></div>
+                <form class="user-create-form" id="user-create-form">
+                  <label>顯示名稱<input name="displayName" required maxlength="80" autocomplete="off"></label>
+                  <label>Email<input name="email" type="email" required autocomplete="off"></label>
+                  <label>初始密碼<input name="password" type="password" required minlength="8" autocomplete="new-password"></label>
+                  <label>角色<select name="role"><option value="member">member</option><option value="guest">guest</option><option value="admin">admin</option></select></label>
+                  <button type="submit">新增使用者</button>
+                </form>
+                <div class="table-wrap"><table><thead><tr><th>使用者</th><th>新密碼</th><th>角色</th><th>狀態</th><th><span class="visually-hidden">操作</span></th></tr></thead><tbody id="user-table-body"></tbody></table></div>
+                <p class="form-message" id="user-admin-message" role="alert"></p>
+              </section>
+              <section class="status-admin" aria-labelledby="status-admin-title">
+                <div class="section-heading compact-heading"><h3 id="status-admin-title">討論狀態</h3><p>新增、改名、排序及停用討論狀態。</p></div>
+                <form class="status-form" id="status-form" hidden>
+                  <label>新狀態名稱<input name="name" required maxlength="40" placeholder="例如：處理中"></label>
+                  <label>排序<input name="sortOrder" type="number" value="1" required></label>
+                  <button type="submit">新增狀態</button>
+                </form>
+                <div class="status-list" id="status-list"></div>
+              </section>
+              <section class="admin-space-link">
+                <div><h3>工作區與成員</h3><p>建立、封存工作區，並管理每個工作區的成員。</p></div>
+                <button type="button" data-portal-target="spaces">工作區管理</button>
+              </section>
+            </section>
+          </div>
+        </div>
+      </section>
+
+      <dialog class="edit-dialog" id="status-edit-dialog">
+        <form class="edit-dialog-form" id="status-edit-form">
+          <div class="edit-dialog-heading">
+            <div>
+              <p class="eyebrow">Thread status</p>
+              <h2>編輯討論狀態</h2>
+            </div>
+            <button class="dialog-close" type="button" data-close-dialog aria-label="關閉">×</button>
+          </div>
+          <input name="statusId" type="hidden">
+          <label>
+            狀態名稱
+            <input name="name" required maxlength="40">
+          </label>
+          <label>
+            排序
+            <input name="sortOrder" type="number" required>
+          </label>
+          <div class="dialog-actions">
+            <button class="secondary-button" type="button" data-close-dialog>取消</button>
+            <button type="submit">儲存變更</button>
+          </div>
+        </form>
+      </dialog>
+
+      <dialog class="edit-dialog" id="profile-dialog">
+        <form class="edit-dialog-form" id="profile-form">
+          <div class="edit-dialog-heading">
+            <div>
+              <p class="eyebrow">Account</p>
+              <h2>編輯個人資料</h2>
+            </div>
+            <button class="dialog-close" type="button" data-close-dialog aria-label="關閉">×</button>
+          </div>
+          <label>
+            個人名稱
+            <input name="displayName" required maxlength="80" autocomplete="name">
+          </label>
+          <label>
+            新密碼
+            <input name="password" type="password" minlength="8" autocomplete="new-password" placeholder="不變更請留空">
+          </label>
+          <label>
+            確認新密碼
+            <input name="passwordConfirmation" type="password" minlength="8" autocomplete="new-password" placeholder="再次輸入新密碼">
+          </label>
+          <p class="form-message" id="profile-message" role="status"></p>
+          <div class="dialog-actions">
+            <button class="secondary-button" type="button" data-close-dialog>取消</button>
+            <button type="submit">儲存變更</button>
+          </div>
+        </form>
+      </dialog>
+
+      <dialog class="edit-dialog" id="thread-edit-dialog">
+        <form class="edit-dialog-form" id="thread-edit-form">
+          <div class="edit-dialog-heading">
+            <div>
+              <p class="eyebrow">Thread</p>
+              <h2>編輯討論</h2>
+            </div>
+            <button class="dialog-close" type="button" data-close-dialog aria-label="關閉">×</button>
+          </div>
+          <input name="threadId" type="hidden">
+          <label>
+            標題
+            <input name="title" required maxlength="120">
+          </label>
+          <label>
+            狀態
+            <select name="statusId" id="thread-edit-status-select"></select>
+          </label>
+          <label>
+            內容
+            <textarea name="content" rows="8" required></textarea>
+          </label>
+          <div class="dialog-actions">
+            <button class="secondary-button" type="button" data-close-dialog>取消</button>
+            <button type="submit">儲存變更</button>
+          </div>
+        </form>
+      </dialog>
+
+      <dialog class="edit-dialog" id="create-thread-dialog">
+        <form class="edit-dialog-form thread-form" id="thread-form">
+          <div class="edit-dialog-heading">
+            <div><p class="eyebrow">New thread</p><h2>新增討論</h2></div>
+            <button class="dialog-close" type="button" data-close-dialog aria-label="關閉">×</button>
+          </div>
+          <label>工作區<select name="spaceId" id="thread-space-select" required></select></label>
+          <label>標題<input name="title" required maxlength="120"></label>
+          <label>狀態<select name="statusId" id="thread-status-select"></select></label>
+          <label>內容<textarea name="content" rows="7" required></textarea></label>
+          <div class="dialog-actions">
+            <button class="secondary-button" type="button" data-close-dialog>取消</button>
+            <button type="submit">建立討論</button>
+          </div>
+        </form>
+      </dialog>
+
+    </main>
+  </body>
+</html>
+

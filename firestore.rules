@@ -1,0 +1,108 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function currentUser() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function activeUser() {
+      return signedIn() && currentUser().data.active == true;
+    }
+
+    function isAdmin() {
+      return activeUser() && currentUser().data.role == 'admin';
+    }
+
+    function isSpaceMember(spaceId) {
+      return activeUser() && exists(/databases/$(database)/documents/spaces/$(spaceId)/members/$(request.auth.uid));
+    }
+
+    function canAccessSpace(spaceId) {
+      return isAdmin() || isSpaceMember(spaceId);
+    }
+
+    function validAuditOnCreate() {
+      return request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.updatedBy == request.auth.uid
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    function validAuditOnUpdate() {
+      return request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.updatedBy == request.auth.uid
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    match /users/{userId} {
+      allow read: if activeUser() && (request.auth.uid == userId || isAdmin());
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() && validAuditOnUpdate();
+    }
+
+    match /spaces/{spaceId} {
+      allow read: if canAccessSpace(spaceId);
+      allow create: if isAdmin() && validAuditOnCreate();
+      allow update: if isAdmin() && validAuditOnUpdate();
+      allow delete: if false;
+
+      match /members/{userId} {
+        allow read: if isAdmin() || (activeUser() && request.auth.uid == userId);
+        allow write: if isAdmin();
+      }
+    }
+
+    match /threadStatuses/{statusId} {
+      allow read: if activeUser() && (resource.data.active == true || isAdmin());
+      allow create: if isAdmin() && validAuditOnCreate();
+      allow update: if isAdmin() && validAuditOnUpdate();
+      allow delete: if false;
+    }
+
+    match /threads/{threadId} {
+      allow read: if canAccessSpace(resource.data.spaceId);
+      allow create: if canAccessSpace(request.resource.data.spaceId)
+        && request.resource.data.authorId == request.auth.uid
+        && validAuditOnCreate();
+      allow update: if canAccessSpace(resource.data.spaceId)
+        && request.resource.data.spaceId == resource.data.spaceId
+        && request.resource.data.authorId == resource.data.authorId
+        && (isAdmin() || resource.data.authorId == request.auth.uid)
+        && validAuditOnUpdate();
+      allow delete: if false;
+
+      match /replies/{replyId} {
+        function parentThread() {
+          return get(/databases/$(database)/documents/threads/$(threadId));
+        }
+        allow read: if canAccessSpace(parentThread().data.spaceId);
+        allow create: if canAccessSpace(parentThread().data.spaceId)
+          && request.resource.data.authorId == request.auth.uid
+          && validAuditOnCreate();
+        allow update: if canAccessSpace(parentThread().data.spaceId)
+          && (isAdmin() || resource.data.authorId == request.auth.uid)
+          && request.resource.data.authorId == resource.data.authorId
+          && validAuditOnUpdate();
+        allow delete: if false;
+      }
+    }
+
+    match /attachments/{attachmentId} {
+      allow read: if canAccessSpace(resource.data.spaceId);
+      allow create: if canAccessSpace(request.resource.data.spaceId)
+        && request.resource.data.uploadedBy == request.auth.uid
+        && validAuditOnCreate();
+      allow update, delete: if false;
+    }
+
+    match /users/{userId}/bookmarks/{threadId} {
+      allow read, write: if activeUser() && request.auth.uid == userId;
+    }
+  }
+}

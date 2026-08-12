@@ -1,0 +1,24 @@
+{
+  "name": "koino-harbor",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "企業內部溝通平台 POC",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "check": "node --check src/auth.js && node --check src/attachments.js && node --check src/config.js && node --check src/discussions.js && node --check src/firebase-auth.js && node --check src/firebase-stores.js && node --check src/server.js && node --check src/spaces.js && node --check public/app.js",
+    "dev": "node --watch src/server.js",
+    "start": "node src/server.js",
+    "test": "node --test",
+    "verify": "npm run check && npm test"
+  },
+  "dependencies": {
+    "bootstrap": "^5.3.8",
+    "firebase-admin": "^14.2.0"
+  },
+  "overrides": {
+    "uuid": "^11.1.1"
+  }
+}

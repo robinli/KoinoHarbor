@@ -1,0 +1,1198 @@
+const loginForm = document.querySelector("#login-form");
+const loginMessage = document.querySelector("#login-message");
+const forgotPasswordButton = document.querySelector("#forgot-password-button");
+const forgotPasswordForm = document.querySelector("#forgot-password-form");
+const forgotPasswordMessage = document.querySelector("#forgot-password-message");
+const cancelForgotPassword = document.querySelector("#cancel-forgot-password");
+const signedOutView = document.querySelector("#signed-out-view");
+const userAdmin = document.querySelector("#user-admin");
+const userCreateForm = document.querySelector("#user-create-form");
+const userTableBody = document.querySelector("#user-table-body");
+const userAdminMessage = document.querySelector("#user-admin-message");
+const spacesPanel = document.querySelector("#spaces-panel");
+const spaceForm = document.querySelector("#space-form");
+const spaceList = document.querySelector("#space-list");
+const spaceMessage = document.querySelector("#space-message");
+const discussionPanel = document.querySelector("#discussion-panel");
+const statusForm = document.querySelector("#status-form");
+const statusList = document.querySelector("#status-list");
+const threadSpaceFilter = document.querySelector("#thread-space-filter");
+const threadForm = document.querySelector("#thread-form");
+const threadStatusSelect = document.querySelector("#thread-status-select");
+const threadList = document.querySelector("#thread-list");
+const discussionMessage = document.querySelector("#discussion-message");
+const searchForm = document.querySelector("#search-form");
+const showBookmarksButton = document.querySelector("#show-bookmarks");
+const authCard = document.querySelector("#auth-card");
+const portalShell = document.querySelector("#portal-shell");
+const portalAvatar = document.querySelector(".portal-avatar");
+const portalUserName = document.querySelector("#portal-user-name");
+const portalUserRole = document.querySelector("#portal-user-role");
+const portalProfileButton = document.querySelector("#portal-profile-button");
+const portalLogoutButton = document.querySelector("#portal-logout-button");
+const portalAdminNav = document.querySelector("#portal-admin-nav");
+const portalAllSpaces = document.querySelector("#portal-all-spaces");
+const portalBookmarks = document.querySelector("#portal-bookmarks");
+const portalSpaceList = document.querySelector("#portal-space-list");
+const spacesEyebrow = document.querySelector("#spaces-eyebrow");
+const spacesTitle = document.querySelector("#spaces-title");
+const spacesDescription = document.querySelector("#spaces-description");
+const discussionTitle = document.querySelector("#discussion-title");
+const discussionDescription = document.querySelector("#discussion-description");
+const dashboardThreadList = document.querySelector("#dashboard-thread-list");
+const dashboardSpaceFilter = document.querySelector("#dashboard-space-filter");
+const announcementList = document.querySelector("#announcement-list");
+const statusSummary = document.querySelector("#status-summary");
+const createThreadDialog = document.querySelector("#create-thread-dialog");
+const threadSpaceSelect = document.querySelector("#thread-space-select");
+const statusEditDialog = document.querySelector("#status-edit-dialog");
+const statusEditForm = document.querySelector("#status-edit-form");
+const threadEditDialog = document.querySelector("#thread-edit-dialog");
+const threadEditForm = document.querySelector("#thread-edit-form");
+const threadEditStatusSelect = document.querySelector("#thread-edit-status-select");
+const profileDialog = document.querySelector("#profile-dialog");
+const profileForm = document.querySelector("#profile-form");
+const profileMessage = document.querySelector("#profile-message");
+let availableUsers = [];
+let availableSpaces = [];
+let availableStatuses = [];
+let signedInUser = null;
+let runtimeConfig = null;
+let selectedSidebarSpaceId = null;
+
+function enhanceBootstrapUI(root = document) {
+  const selectAll = (selector) => [
+    ...(root instanceof Element && root.matches(selector) ? [root] : []),
+    ...root.querySelectorAll(selector),
+  ];
+
+  for (const button of selectAll("button:not(.btn)")) {
+    button.classList.add("btn");
+    if (button.matches(".delete-status-button")) {
+      button.classList.add("btn-danger");
+    } else if (
+      button.matches(".secondary-button, .text-button, .subtle-button, .dialog-close, .portal-logout, .archive-space-button")
+      || button.closest(".portal-nav, .portal-space-links, .admin-breadcrumb, .sidebar-brand, .portal-user")
+    ) {
+      button.classList.add("btn-quiet");
+    } else {
+      button.classList.add("btn-primary");
+    }
+  }
+
+  for (const input of selectAll("input:not(.form-control):not(.form-check-input)")) {
+    if (["checkbox", "radio"].includes(input.type)) {
+      input.classList.add("form-check-input");
+    } else {
+      input.classList.add("form-control");
+      if (input.type === "file") input.classList.add("form-control-sm");
+    }
+  }
+
+  for (const select of selectAll("select:not(.form-select)")) select.classList.add("form-select");
+  for (const textarea of selectAll("textarea:not(.form-control)")) textarea.classList.add("form-control");
+  for (const table of selectAll("table:not(.table)")) table.classList.add("table", "table-hover", "align-middle");
+  for (const wrapper of selectAll(".table-wrap:not(.table-responsive)")) wrapper.classList.add("table-responsive");
+}
+
+enhanceBootstrapUI();
+const bootstrapObserver = new MutationObserver((mutations) => {
+  for (const mutation of mutations) {
+    for (const node of mutation.addedNodes) {
+      if (node instanceof Element) enhanceBootstrapUI(node);
+    }
+  }
+});
+bootstrapObserver.observe(document.body, { childList: true, subtree: true });
+
+function resetPortalData() {
+  availableUsers = [];
+  availableSpaces = [];
+  availableStatuses = [];
+  userTableBody.replaceChildren();
+  spaceList.replaceChildren();
+  statusList.replaceChildren();
+  threadList.replaceChildren();
+  dashboardThreadList.replaceChildren();
+  announcementList.replaceChildren();
+  statusSummary.replaceChildren();
+  portalSpaceList.replaceChildren();
+  threadSpaceFilter.replaceChildren();
+  dashboardSpaceFilter.replaceChildren();
+  threadSpaceSelect.replaceChildren();
+  threadStatusSelect.replaceChildren();
+  threadEditStatusSelect.replaceChildren();
+  selectedSidebarSpaceId = null;
+}
+
+function showPortalView(viewName) {
+  for (const view of document.querySelectorAll("[data-portal-view]")) {
+    view.hidden = view.dataset.portalView !== viewName;
+  }
+  for (const button of document.querySelectorAll(".portal-sidebar [data-portal-target], .portal-space-links button, #portal-bookmarks")) {
+    button.classList.toggle("is-active", button.dataset.portalTarget === viewName);
+  }
+}
+
+function createThreadSummary(thread) {
+  const card = document.createElement("article");
+  card.className = "thread-summary";
+  const space = availableSpaces.find((item) => item.id === thread.spaceId);
+  const status = availableStatuses.find((item) => item.id === thread.statusId);
+  const meta = document.createElement("p");
+  meta.className = "thread-summary-meta";
+  meta.textContent = `${space?.name ?? "工作區"} · ${status?.name ?? "無狀態"}`;
+  const title = document.createElement("h4");
+  title.textContent = thread.title;
+  const content = document.createElement("p");
+  content.className = "thread-summary-content";
+  content.textContent = thread.content;
+  const openButton = document.createElement("button");
+  openButton.type = "button";
+  openButton.textContent = "開啟討論";
+  openButton.addEventListener("click", async () => {
+    showPortalView("discussions");
+    if (space) threadSpaceFilter.value = space.id;
+    await loadThreads();
+  });
+  card.append(meta, title, content, openButton);
+  return card;
+}
+
+async function loadDashboard() {
+  const response = await fetch("/api/threads", { headers: { Accept: "application/json" } });
+  const payload = await readJsonResponse(response);
+  const allThreads = payload.threads;
+  const threads = dashboardSpaceFilter.value
+    ? allThreads.filter((thread) => thread.spaceId === dashboardSpaceFilter.value)
+    : allThreads;
+  dashboardThreadList.replaceChildren(...threads.slice(0, 8).map(createThreadSummary));
+  if (!threads.length) dashboardThreadList.textContent = "目前沒有可顯示的討論。";
+
+  const announcementSpace = availableSpaces.find((space) => !space.archived && (space.name.includes("公告") || space.type === "department"));
+  const announcements = announcementSpace ? allThreads.filter((thread) => thread.spaceId === announcementSpace.id).slice(0, 4) : [];
+  announcementList.replaceChildren(...announcements.map((thread) => {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.textContent = thread.title;
+    item.addEventListener("click", async () => {
+      showPortalView("discussions");
+      threadSpaceFilter.value = thread.spaceId;
+      await loadThreads();
+    });
+    return item;
+  }));
+  if (!announcements.length) announcementList.textContent = "目前沒有公司公告。";
+
+  const counts = new Map();
+  for (const thread of threads) {
+    const label = availableStatuses.find((status) => status.id === thread.statusId)?.name ?? "無狀態";
+    counts.set(label, (counts.get(label) ?? 0) + 1);
+  }
+  statusSummary.replaceChildren(...[...counts.entries()].map(([label, count]) => {
+    const item = document.createElement("div");
+    const name = document.createElement("span");
+    name.textContent = label;
+    const value = document.createElement("strong");
+    value.textContent = String(count);
+    item.append(name, value);
+    return item;
+  }));
+  if (!counts.size) statusSummary.textContent = "目前沒有討論資料。";
+}
+
+function createUserRow(user) {
+  const row = document.createElement("tr");
+  row.dataset.userId = user.id;
+
+  const identityCell = document.createElement("td");
+  const identity = document.createElement("div");
+  identity.className = "user-identity";
+  const displayName = document.createElement("input");
+  displayName.value = user.displayName;
+  displayName.setAttribute("aria-label", `${user.email} 的顯示名稱`);
+  const email = document.createElement("small");
+  email.textContent = user.email;
+  identity.append(displayName, email);
+  identityCell.append(identity);
+
+  const passwordCell = document.createElement("td");
+  const password = document.createElement("input");
+  password.type = "password";
+  password.minLength = 8;
+  password.autocomplete = "new-password";
+  password.placeholder = "留空則不變更";
+  password.setAttribute("aria-label", `${user.email} 的新密碼`);
+  passwordCell.append(password);
+
+  const roleCell = document.createElement("td");
+  const role = document.createElement("select");
+  role.setAttribute("aria-label", `${user.email} 的角色`);
+  for (const value of ["admin", "member", "guest"]) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = value;
+    option.selected = value === user.role;
+    role.append(option);
+  }
+  roleCell.append(role);
+
+  const activeCell = document.createElement("td");
+  const activeLabel = document.createElement("label");
+  activeLabel.className = "status-toggle";
+  const active = document.createElement("input");
+  active.type = "checkbox";
+  active.checked = user.active;
+  activeLabel.append(active, document.createTextNode("啟用"));
+  activeCell.append(activeLabel);
+
+  const actionCell = document.createElement("td");
+  const saveButton = document.createElement("button");
+  saveButton.type = "button";
+  saveButton.className = "save-user-button";
+  saveButton.textContent = "儲存";
+  saveButton.addEventListener("click", async () => {
+    userAdminMessage.textContent = "";
+    saveButton.disabled = true;
+
+    try {
+      const response = await fetch(`/api/users/${encodeURIComponent(user.id)}`, {
+        method: "PATCH",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          active: active.checked,
+          displayName: displayName.value,
+          ...(password.value ? { password: password.value } : {}),
+          role: role.value,
+        }),
+      });
+      await readJsonResponse(response);
+      const changedPassword = Boolean(password.value);
+      password.value = "";
+      userAdminMessage.textContent = `已更新 ${user.email} 的名稱${changedPassword ? "與密碼" : ""}。`;
+    } catch (error) {
+      userAdminMessage.textContent = error.message;
+    } finally {
+      saveButton.disabled = false;
+    }
+  });
+  actionCell.append(saveButton);
+
+  row.append(identityCell, passwordCell, roleCell, activeCell, actionCell);
+  return row;
+}
+
+async function loadUsers() {
+  userAdminMessage.textContent = "";
+
+  try {
+    const response = await fetch("/api/users", {
+      headers: { Accept: "application/json" },
+    });
+    const payload = await readJsonResponse(response);
+    availableUsers = payload.users;
+    userTableBody.replaceChildren(...payload.users.map(createUserRow));
+  } catch (error) {
+    userAdminMessage.textContent = error.message;
+  }
+}
+
+userCreateForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  userAdminMessage.textContent = "";
+  const formData = new FormData(userCreateForm);
+
+  try {
+    const response = await fetch("/api/users", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        displayName: formData.get("displayName"),
+        email: formData.get("email"),
+        password: formData.get("password"),
+        role: formData.get("role"),
+      }),
+    });
+    const payload = await readJsonResponse(response);
+    userCreateForm.reset();
+    await loadUsers();
+    userAdminMessage.textContent = `已新增 ${payload.user.email}。`;
+  } catch (error) {
+    userAdminMessage.textContent = error.message;
+  }
+});
+
+async function loadSpaceMembers(spaceId, listElement) {
+  const response = await fetch(`/api/spaces/${encodeURIComponent(spaceId)}/members`, {
+    headers: { Accept: "application/json" },
+  });
+  const payload = await readJsonResponse(response);
+
+  listElement.replaceChildren(...payload.members.map((membership) => {
+    const item = document.createElement("li");
+    const label = document.createElement("span");
+    label.textContent = `${membership.user?.email ?? membership.userId} · ${membership.role}`;
+    const removeButton = document.createElement("button");
+    removeButton.type = "button";
+    removeButton.textContent = "移除";
+    removeButton.addEventListener("click", async () => {
+      const deleteResponse = await fetch(
+        `/api/spaces/${encodeURIComponent(spaceId)}/members/${encodeURIComponent(membership.userId)}`,
+        { method: "DELETE" },
+      );
+      await readJsonResponse(deleteResponse);
+      await loadSpaceMembers(spaceId, listElement);
+    });
+    item.append(label, removeButton);
+    return item;
+  }));
+}
+
+function userInitials(displayName) {
+  const parts = displayName.trim().split(/\s+/).filter(Boolean);
+  const initials = parts.slice(0, 2).map((part) => part[0]).join("");
+  return (initials || "KH").toUpperCase();
+}
+
+function renderSpaceOverview() {
+  const selectedSpace = availableSpaces.find((space) => space.id === selectedSidebarSpaceId) ?? null;
+  const visibleSpaces = selectedSpace ? [selectedSpace] : availableSpaces;
+
+  spacesEyebrow.textContent = selectedSpace ? "Workspace" : "Workspace overview";
+  spacesTitle.textContent = selectedSpace?.name ?? "全部工作區";
+  spacesDescription.textContent = selectedSpace
+    ? "顯示此工作區的資訊。"
+    : "顯示所有可存取工作區的資訊。";
+  spaceForm.hidden = signedInUser?.role !== "admin" || Boolean(selectedSpace);
+  spaceList.replaceChildren(...visibleSpaces.map(createSpaceCard));
+
+  if (!visibleSpaces.length) {
+    const empty = document.createElement("p");
+    empty.className = "empty-state";
+    empty.textContent = "目前沒有可顯示的工作區。";
+    spaceList.append(empty);
+  }
+
+  portalAllSpaces.classList.toggle("is-active", !selectedSpace);
+  for (const button of portalSpaceList.querySelectorAll("button[data-space-id]")) {
+    button.classList.toggle("is-active", button.dataset.spaceId === selectedSpace?.id);
+  }
+}
+
+function showSpaceOverview(spaceId = null) {
+  selectedSidebarSpaceId = spaceId;
+  showPortalView("spaces");
+  renderSpaceOverview();
+}
+
+function createSpaceCard(space) {
+  const card = document.createElement("article");
+  card.className = `space-item${space.archived ? " is-archived" : ""}`;
+  const header = document.createElement("div");
+  header.className = "space-item-header";
+  const headingGroup = document.createElement("div");
+  const type = document.createElement("span");
+  type.className = "space-type";
+  type.textContent = space.type;
+  const title = document.createElement("h3");
+  title.textContent = space.name;
+  headingGroup.append(type, title);
+  header.append(headingGroup);
+
+  if (signedInUser.role === "admin") {
+    const archiveButton = document.createElement("button");
+    archiveButton.type = "button";
+    archiveButton.className = "archive-space-button";
+    archiveButton.textContent = space.archived ? "取消封存" : "封存";
+    archiveButton.addEventListener("click", async () => {
+      const response = await fetch(`/api/spaces/${encodeURIComponent(space.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ archived: !space.archived }),
+      });
+      await readJsonResponse(response);
+      await loadSpaces();
+    });
+    header.append(archiveButton);
+  }
+
+  const description = document.createElement("p");
+  description.textContent = space.description || "尚未提供說明。";
+  card.append(header, description);
+
+  if (signedInUser.role === "admin") {
+    const editor = document.createElement("div");
+    editor.className = "member-editor";
+    const editorTitle = document.createElement("h4");
+    editorTitle.textContent = "成員管理";
+    const control = document.createElement("div");
+    control.className = "member-control";
+    const userSelect = document.createElement("select");
+    userSelect.setAttribute("aria-label", `${space.name} 新增成員`);
+    for (const user of availableUsers.filter((item) => item.active)) {
+      const option = document.createElement("option");
+      option.value = user.id;
+      option.textContent = user.email;
+      userSelect.append(option);
+    }
+    const roleSelect = document.createElement("select");
+    roleSelect.setAttribute("aria-label", `${space.name} 成員角色`);
+    for (const roleValue of ["member", "manager", "guest"]) {
+      const option = document.createElement("option");
+      option.value = roleValue;
+      option.textContent = roleValue;
+      roleSelect.append(option);
+    }
+    const addButton = document.createElement("button");
+    addButton.type = "button";
+    addButton.textContent = "加入";
+    const memberList = document.createElement("ul");
+    memberList.className = "member-list";
+    addButton.addEventListener("click", async () => {
+      spaceMessage.textContent = "";
+
+      try {
+        const response = await fetch(`/api/spaces/${encodeURIComponent(space.id)}/members`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ role: roleSelect.value, userId: userSelect.value }),
+        });
+        await readJsonResponse(response);
+        await loadSpaceMembers(space.id, memberList);
+      } catch (error) {
+        spaceMessage.textContent = error.message;
+      }
+    });
+    control.append(userSelect, roleSelect, addButton);
+    editor.append(editorTitle, control, memberList);
+    card.append(editor);
+    loadSpaceMembers(space.id, memberList).catch((error) => {
+      spaceMessage.textContent = error.message;
+    });
+  }
+
+  return card;
+}
+
+async function loadSpaces() {
+  spaceMessage.textContent = "";
+
+  try {
+    const response = await fetch("/api/spaces", {
+      headers: { Accept: "application/json" },
+    });
+    const payload = await readJsonResponse(response);
+    availableSpaces = payload.spaces;
+    const previousSpaceId = threadSpaceFilter.value;
+    const previousCreateSpaceId = threadSpaceSelect.value;
+    const activeSpaces = payload.spaces.filter((space) => !space.archived);
+    const spaceOptions = activeSpaces
+      .filter((space) => !space.archived)
+      .map((space) => {
+        const option = document.createElement("option");
+        option.value = space.id;
+        option.textContent = `${space.name} (${space.type})`;
+        return option;
+      });
+    const allSpacesOption = document.createElement("option");
+    allSpacesOption.value = "";
+    allSpacesOption.textContent = "全部工作區";
+    threadSpaceFilter.replaceChildren(allSpacesOption, ...spaceOptions.map((option) => option.cloneNode(true)));
+    dashboardSpaceFilter.replaceChildren(allSpacesOption.cloneNode(true), ...spaceOptions.map((option) => option.cloneNode(true)));
+    threadSpaceSelect.replaceChildren(...spaceOptions.map((option) => option.cloneNode(true)));
+    if (payload.spaces.some((space) => space.id === previousSpaceId && !space.archived)) {
+      threadSpaceFilter.value = previousSpaceId;
+    }
+    if (payload.spaces.some((space) => space.id === previousCreateSpaceId && !space.archived)) {
+      threadSpaceSelect.value = previousCreateSpaceId;
+    }
+    portalSpaceList.replaceChildren(...activeSpaces.map((space) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = space.name;
+      button.dataset.spaceId = space.id;
+      button.addEventListener("click", () => showSpaceOverview(space.id));
+      return button;
+    }));
+    if (!activeSpaces.length) {
+      const empty = document.createElement("small");
+      empty.textContent = "尚未加入工作區";
+      portalSpaceList.append(empty);
+    }
+    if (selectedSidebarSpaceId && !activeSpaces.some((space) => space.id === selectedSidebarSpaceId)) {
+      selectedSidebarSpaceId = null;
+    }
+    renderSpaceOverview();
+    for (const button of document.querySelectorAll("[data-open-thread-dialog]")) {
+      button.disabled = !activeSpaces.length;
+      button.title = activeSpaces.length ? "新增討論" : "加入工作區後才能新增討論";
+    }
+  } catch (error) {
+    spaceMessage.textContent = error.message;
+  }
+}
+
+function createStatusChip(status) {
+  const chip = document.createElement("span");
+  chip.className = `status-chip${status.active ? "" : " is-inactive"}`;
+  chip.textContent = `${status.sortOrder}. ${status.name}`;
+
+  if (signedInUser.role === "admin") {
+    const editButton = document.createElement("button");
+    editButton.type = "button";
+    editButton.title = "編輯狀態名稱與排序";
+    editButton.textContent = "編輯";
+    editButton.addEventListener("click", () => {
+      statusEditForm.elements.statusId.value = status.id;
+      statusEditForm.elements.name.value = status.name;
+      statusEditForm.elements.sortOrder.value = status.sortOrder;
+      statusEditDialog.showModal();
+    });
+    chip.append(editButton);
+
+    const toggleButton = document.createElement("button");
+    toggleButton.type = "button";
+    toggleButton.title = status.active ? "停用狀態" : "啟用狀態";
+    toggleButton.textContent = status.active ? "×" : "↻";
+    toggleButton.addEventListener("click", async () => {
+      const response = await fetch(`/api/thread-statuses/${encodeURIComponent(status.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ active: !status.active }),
+      });
+      await readJsonResponse(response);
+      await loadStatuses();
+    });
+    chip.append(toggleButton);
+
+    if (!status.active) {
+      const deleteButton = document.createElement("button");
+      deleteButton.type = "button";
+      deleteButton.className = "delete-status-button";
+      deleteButton.title = "永久刪除此狀態";
+      deleteButton.textContent = "刪除";
+      deleteButton.addEventListener("click", async () => {
+        if (!window.confirm(`確定永久刪除「${status.name}」？`)) return;
+        try {
+          const response = await fetch(`/api/thread-statuses/${encodeURIComponent(status.id)}`, {
+            method: "DELETE",
+          });
+          await readJsonResponse(response);
+          await loadStatuses();
+          discussionMessage.textContent = `已刪除討論狀態「${status.name}」。`;
+        } catch (error) {
+          discussionMessage.textContent = error.message;
+        }
+      });
+      chip.append(deleteButton);
+    }
+  }
+
+  return chip;
+}
+
+async function loadStatuses() {
+  const response = await fetch("/api/thread-statuses", {
+    headers: { Accept: "application/json" },
+  });
+  const payload = await readJsonResponse(response);
+  availableStatuses = payload.statuses;
+  statusList.replaceChildren(...availableStatuses.map(createStatusChip));
+  threadStatusSelect.replaceChildren();
+  const noStatus = document.createElement("option");
+  noStatus.value = "";
+  noStatus.textContent = "無狀態";
+  threadStatusSelect.append(noStatus);
+  threadEditStatusSelect.replaceChildren(noStatus.cloneNode(true));
+  for (const status of availableStatuses.filter((item) => item.active)) {
+    const option = document.createElement("option");
+    option.value = status.id;
+    option.textContent = status.name;
+    threadStatusSelect.append(option);
+    threadEditStatusSelect.append(option.cloneNode(true));
+  }
+}
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener("load", () => resolve(String(reader.result).split(",")[1]));
+    reader.addEventListener("error", () => reject(reader.error));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function loadAttachments(threadId, container) {
+  const response = await fetch(`/api/threads/${encodeURIComponent(threadId)}/attachments`);
+  const payload = await readJsonResponse(response);
+  container.replaceChildren(...payload.attachments.map((attachment) => {
+    const row = document.createElement("div");
+    row.className = "attachment-row";
+    const link = document.createElement("a");
+    link.href = `/api/attachments/${encodeURIComponent(attachment.id)}`;
+    link.textContent = attachment.fileName;
+    const size = document.createElement("small");
+    size.textContent = `${Math.ceil(attachment.fileSize / 1024)} KB`;
+    row.append(link, size);
+    return row;
+  }));
+}
+
+function createThreadCard(thread) {
+  const card = document.createElement("article");
+  card.className = `thread-card${thread.pinned ? " is-pinned" : ""}${thread.archived ? " is-archived" : ""}`;
+  const header = document.createElement("div");
+  header.className = "thread-card-header";
+  const title = document.createElement("h3");
+  title.textContent = thread.title;
+  const status = availableStatuses.find((item) => item.id === thread.statusId);
+  const meta = document.createElement("span");
+  meta.className = "thread-meta";
+  meta.textContent = `${thread.pinned ? "置頂 · " : ""}${status?.name ?? "無狀態"}`;
+  header.append(title, meta);
+  const body = document.createElement("p");
+  body.className = "thread-body";
+  body.textContent = thread.content;
+  const actions = document.createElement("div");
+  actions.className = "thread-actions";
+  const bookmarkButton = document.createElement("button");
+  bookmarkButton.type = "button";
+  bookmarkButton.className = "subtle-button";
+  bookmarkButton.textContent = "加入書籤";
+  bookmarkButton.addEventListener("click", async () => {
+    const response = await fetch(`/api/threads/${encodeURIComponent(thread.id)}/bookmark`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ bookmarked: true }),
+    });
+    await readJsonResponse(response);
+    discussionMessage.textContent = "已加入個人書籤。";
+  });
+  actions.append(bookmarkButton);
+
+  if (signedInUser.role === "admin" || signedInUser.id === thread.authorId) {
+    const editButton = document.createElement("button");
+    editButton.type = "button";
+    editButton.className = "subtle-button";
+    editButton.textContent = "編輯討論";
+    editButton.addEventListener("click", () => {
+      threadEditForm.elements.threadId.value = thread.id;
+      threadEditForm.elements.title.value = thread.title;
+      threadEditForm.elements.content.value = thread.content;
+      threadEditForm.elements.statusId.value = thread.statusId || "";
+      threadEditDialog.showModal();
+    });
+    actions.append(editButton);
+  }
+
+  if (signedInUser.role === "admin") {
+    for (const [label, field] of [[thread.pinned ? "取消置頂" : "置頂", "pinned"], [thread.archived ? "取消封存" : "封存", "archived"]]) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "subtle-button";
+      button.textContent = label;
+      button.addEventListener("click", async () => {
+        const response = await fetch(`/api/threads/${encodeURIComponent(thread.id)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ [field]: !thread[field] }),
+        });
+        await readJsonResponse(response);
+        await loadThreads();
+      });
+      actions.append(button);
+    }
+  }
+
+  const replyList = document.createElement("ul");
+  replyList.className = "reply-list";
+  const replyForm = document.createElement("form");
+  replyForm.className = "reply-form";
+  const replyInput = document.createElement("input");
+  replyInput.required = true;
+  replyInput.placeholder = "新增回覆";
+  const replyButton = document.createElement("button");
+  replyButton.type = "submit";
+  replyButton.textContent = "回覆";
+  replyForm.append(replyInput, replyButton);
+  replyForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const response = await fetch(`/api/threads/${encodeURIComponent(thread.id)}/replies`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: replyInput.value }),
+    });
+    await readJsonResponse(response);
+    replyInput.value = "";
+    await loadThreadDetails(thread.id, replyList);
+  });
+
+  const attachmentList = document.createElement("div");
+  attachmentList.className = "attachment-list";
+  const attachmentForm = document.createElement("form");
+  attachmentForm.className = "attachment-form";
+  const fileInput = document.createElement("input");
+  fileInput.type = "file";
+  fileInput.required = true;
+  fileInput.accept = ".jpg,.jpeg,.png,.webp,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip";
+  const uploadButton = document.createElement("button");
+  uploadButton.type = "submit";
+  uploadButton.textContent = "上傳附件";
+  attachmentForm.append(fileInput, uploadButton);
+  attachmentForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const [file] = fileInput.files;
+    if (!file) return;
+    uploadButton.disabled = true;
+    try {
+      const response = await fetch(`/api/threads/${encodeURIComponent(thread.id)}/attachments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contentBase64: await fileToBase64(file),
+          fileName: file.name,
+          mimeType: file.type || "application/octet-stream",
+        }),
+      });
+      await readJsonResponse(response);
+      attachmentForm.reset();
+      await loadAttachments(thread.id, attachmentList);
+    } catch (error) {
+      discussionMessage.textContent = error.message;
+    } finally {
+      uploadButton.disabled = false;
+    }
+  });
+
+  card.append(header, body, actions, replyList, replyForm, attachmentList, attachmentForm);
+  loadThreadDetails(thread.id, replyList).catch((error) => {
+    discussionMessage.textContent = error.message;
+  });
+  loadAttachments(thread.id, attachmentList).catch((error) => {
+    discussionMessage.textContent = error.message;
+  });
+  return card;
+}
+
+async function loadThreadDetails(threadId, replyList) {
+  const response = await fetch(`/api/threads/${encodeURIComponent(threadId)}`);
+  const payload = await readJsonResponse(response);
+  replyList.replaceChildren(...payload.replies.map((reply) => {
+    const item = document.createElement("li");
+    item.textContent = reply.content;
+    return item;
+  }));
+}
+
+async function loadThreads(sourceUrl = null, emptyMessage = "目前沒有符合條件的討論串。") {
+  discussionMessage.textContent = "";
+  const selectedSpaceId = threadSpaceFilter.value;
+  try {
+    const url = sourceUrl ?? (selectedSpaceId ? `/api/threads?spaceId=${encodeURIComponent(selectedSpaceId)}` : "/api/threads");
+    const response = await fetch(url, { headers: { Accept: "application/json" } });
+    const payload = await readJsonResponse(response);
+    threadList.replaceChildren(...payload.threads.map(createThreadCard));
+    if (!payload.threads.length) {
+      const empty = document.createElement("p");
+      empty.className = "empty-state";
+      empty.textContent = emptyMessage;
+      threadList.append(empty);
+    }
+  } catch (error) {
+    discussionMessage.textContent = error.message;
+  }
+}
+
+async function loadDiscussion() {
+  await loadStatuses();
+  await loadDashboard();
+  await loadThreads();
+}
+
+function showUser(user) {
+  resetPortalData();
+  signedInUser = user;
+  portalAvatar.textContent = userInitials(user.displayName);
+  portalUserName.textContent = user.displayName;
+  portalUserRole.textContent = user.role;
+  signedOutView.hidden = true;
+  authCard.hidden = true;
+  portalShell.hidden = false;
+  document.body.classList.add("portal-active");
+  portalAdminNav.hidden = user.role !== "admin";
+  userAdmin.hidden = user.role !== "admin";
+  spaceForm.hidden = user.role !== "admin";
+  statusForm.hidden = user.role !== "admin";
+  discussionTitle.textContent = "全部討論";
+  discussionDescription.textContent = "依工作區、狀態或關鍵字尋找工作討論。";
+  showSpaceOverview();
+
+  const initialize = async () => {
+    if (user.role === "admin") await loadUsers();
+    await loadSpaces();
+    await loadDiscussion();
+  };
+  initialize().catch((error) => {
+    discussionMessage.textContent = error.message;
+  });
+}
+
+function showLogin() {
+  resetPortalData();
+  signedOutView.hidden = false;
+  loginForm.hidden = false;
+  forgotPasswordForm.hidden = true;
+  forgotPasswordMessage.textContent = "";
+  authCard.hidden = false;
+  portalShell.hidden = true;
+  document.body.classList.remove("portal-active");
+  userAdmin.hidden = true;
+  signedInUser = null;
+  for (const dialog of document.querySelectorAll("dialog[open]")) dialog.close();
+}
+
+async function readJsonResponse(response) {
+  const payload = await response.json();
+
+  if (!response.ok) {
+    throw new Error(payload.message || "要求失敗，請稍後再試。");
+  }
+
+  return payload;
+}
+
+async function loadRuntimeConfig() {
+  const response = await fetch("/api/config", { headers: { Accept: "application/json" } });
+  runtimeConfig = await readJsonResponse(response);
+  if (runtimeConfig.authProvider !== "firebase") {
+    loginForm.elements.email.value = "admin@koino.local";
+    loginForm.elements.password.value = "PocAdmin123!";
+  }
+}
+
+loadRuntimeConfig().catch((error) => {
+  loginMessage.textContent = error.message;
+});
+
+async function restoreSession() {
+  const response = await fetch("/api/auth/me", {
+    headers: { Accept: "application/json" },
+  });
+
+  if (response.ok) {
+    const payload = await response.json();
+    showUser(payload.user);
+  }
+}
+
+loginForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  loginMessage.textContent = "";
+  const formData = new FormData(loginForm);
+
+  try {
+    if (!runtimeConfig) {
+      await loadRuntimeConfig();
+    }
+    let endpoint = "/api/auth/login";
+    let requestBody = {
+      email: formData.get("email"),
+      password: formData.get("password"),
+    };
+    if (runtimeConfig.authProvider === "firebase") {
+      const firebaseResponse = await fetch(
+        `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${encodeURIComponent(runtimeConfig.firebase.apiKey)}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...requestBody, returnSecureToken: true }),
+        },
+      );
+      const firebasePayload = await firebaseResponse.json();
+      if (!firebaseResponse.ok) {
+        throw new Error("Firebase Email 或密碼不正確。");
+      }
+      endpoint = "/api/auth/firebase-session";
+      requestBody = { idToken: firebasePayload.idToken };
+    }
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(requestBody),
+    });
+    const payload = await readJsonResponse(response);
+    loginForm.reset();
+    showUser(payload.user);
+  } catch (error) {
+    loginMessage.textContent = error.message;
+  }
+});
+
+forgotPasswordButton.addEventListener("click", () => {
+  forgotPasswordForm.elements.email.value = loginForm.elements.email.value;
+  forgotPasswordMessage.textContent = "";
+  loginForm.hidden = true;
+  forgotPasswordForm.hidden = false;
+  forgotPasswordForm.elements.email.focus();
+});
+
+cancelForgotPassword.addEventListener("click", () => {
+  forgotPasswordForm.hidden = true;
+  loginForm.hidden = false;
+  loginForm.elements.email.focus();
+});
+
+forgotPasswordForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  forgotPasswordMessage.textContent = "";
+  const email = new FormData(forgotPasswordForm).get("email");
+
+  try {
+    if (!runtimeConfig) await loadRuntimeConfig();
+    if (runtimeConfig.authProvider !== "firebase") {
+      throw new Error("本機模式無法寄送重設信，請聯絡系統管理員。");
+    }
+    await fetch(
+      `https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key=${encodeURIComponent(runtimeConfig.firebase.apiKey)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, requestType: "PASSWORD_RESET" }),
+      },
+    );
+    forgotPasswordMessage.textContent = "若此 Email 已註冊，密碼重設信將寄至信箱。";
+  } catch (error) {
+    forgotPasswordMessage.textContent = error.message;
+  }
+});
+
+async function logout() {
+  await fetch("/api/auth/logout", { method: "POST" });
+  showLogin();
+}
+
+portalLogoutButton.addEventListener("click", logout);
+
+spaceForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  spaceMessage.textContent = "";
+  const formData = new FormData(spaceForm);
+
+  try {
+    const response = await fetch("/api/spaces", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        description: formData.get("description"),
+        name: formData.get("name"),
+        type: formData.get("type"),
+      }),
+    });
+    await readJsonResponse(response);
+    spaceForm.reset();
+    await loadSpaces();
+    await loadThreads();
+  } catch (error) {
+    spaceMessage.textContent = error.message;
+  }
+});
+
+statusForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const formData = new FormData(statusForm);
+  try {
+    const response = await fetch("/api/thread-statuses", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: formData.get("name"),
+        sortOrder: Number.parseInt(formData.get("sortOrder"), 10),
+      }),
+    });
+    await readJsonResponse(response);
+    statusForm.reset();
+    await loadStatuses();
+  } catch (error) {
+    discussionMessage.textContent = error.message;
+  }
+});
+
+statusEditForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const formData = new FormData(statusEditForm);
+  try {
+    const response = await fetch(`/api/thread-statuses/${encodeURIComponent(formData.get("statusId"))}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: formData.get("name"),
+        sortOrder: Number.parseInt(formData.get("sortOrder"), 10),
+      }),
+    });
+    await readJsonResponse(response);
+    statusEditDialog.close();
+    await loadStatuses();
+    await loadThreads();
+    discussionMessage.textContent = "討論狀態已更新。";
+  } catch (error) {
+    discussionMessage.textContent = error.message;
+  }
+});
+
+threadForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const formData = new FormData(threadForm);
+  try {
+    const response = await fetch("/api/threads", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        content: formData.get("content"),
+        spaceId: formData.get("spaceId"),
+        statusId: formData.get("statusId") || null,
+        title: formData.get("title"),
+      }),
+    });
+    await readJsonResponse(response);
+    threadForm.reset();
+    createThreadDialog.close();
+    await loadDashboard();
+    await loadThreads();
+    discussionMessage.textContent = "討論已建立。";
+  } catch (error) {
+    discussionMessage.textContent = error.message;
+  }
+});
+
+threadEditForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const formData = new FormData(threadEditForm);
+  try {
+    const response = await fetch(`/api/threads/${encodeURIComponent(formData.get("threadId"))}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        content: formData.get("content"),
+        statusId: formData.get("statusId") || null,
+        title: formData.get("title"),
+      }),
+    });
+    await readJsonResponse(response);
+    threadEditDialog.close();
+    await loadThreads();
+    discussionMessage.textContent = "討論資料已更新。";
+  } catch (error) {
+    discussionMessage.textContent = error.message;
+  }
+});
+
+for (const button of document.querySelectorAll("[data-close-dialog]")) {
+  button.addEventListener("click", () => button.closest("dialog").close());
+}
+
+portalProfileButton.addEventListener("click", () => {
+  profileForm.reset();
+  profileForm.elements.displayName.value = signedInUser.displayName;
+  profileMessage.textContent = "";
+  profileDialog.showModal();
+});
+
+profileForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  profileMessage.textContent = "";
+  const formData = new FormData(profileForm);
+  const password = formData.get("password");
+  const passwordConfirmation = formData.get("passwordConfirmation");
+
+  if (password !== passwordConfirmation) {
+    profileMessage.textContent = "兩次輸入的新密碼不一致。";
+    return;
+  }
+
+  const submitButton = profileForm.querySelector('button[type="submit"]');
+  submitButton.disabled = true;
+
+  try {
+    const response = await fetch("/api/auth/me", {
+      method: "PATCH",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        displayName: formData.get("displayName"),
+        ...(password ? { password } : {}),
+      }),
+    });
+    const payload = await readJsonResponse(response);
+    signedInUser = payload.user;
+    portalAvatar.textContent = userInitials(payload.user.displayName);
+    portalUserName.textContent = payload.user.displayName;
+    profileForm.elements.password.value = "";
+    profileForm.elements.passwordConfirmation.value = "";
+    profileMessage.textContent = "個人資料已更新。";
+    if (signedInUser.role === "admin") await loadUsers();
+  } catch (error) {
+    profileMessage.textContent = error.message;
+  } finally {
+    submitButton.disabled = false;
+  }
+});
+
+threadSpaceFilter.addEventListener("change", () => loadThreads());
+dashboardSpaceFilter.addEventListener("change", () => loadDashboard());
+
+for (const button of document.querySelectorAll("[data-portal-target]")) {
+  button.addEventListener("click", async () => {
+    const viewName = button.dataset.portalTarget;
+    if (viewName === "spaces") {
+      showSpaceOverview();
+      return;
+    }
+    showPortalView(viewName);
+    if (viewName === "home") await loadDashboard();
+    if (viewName === "discussions") {
+      discussionTitle.textContent = "全部討論";
+      discussionDescription.textContent = "依工作區、狀態或關鍵字尋找工作討論。";
+      await loadThreads();
+    }
+  });
+}
+
+for (const button of document.querySelectorAll("[data-open-thread-dialog]")) {
+  button.addEventListener("click", () => {
+    if (threadSpaceFilter.value && [...threadSpaceSelect.options].some((option) => option.value === threadSpaceFilter.value)) {
+      threadSpaceSelect.value = threadSpaceFilter.value;
+    }
+    createThreadDialog.showModal();
+  });
+}
+
+searchForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const query = new FormData(searchForm).get("query");
+  showPortalView("discussions");
+  discussionTitle.textContent = "搜尋結果";
+  discussionDescription.textContent = `顯示「${query}」的搜尋結果。`;
+  await loadThreads(`/api/search?q=${encodeURIComponent(query)}`);
+});
+
+async function showBookmarks() {
+  showPortalView("discussions");
+  portalBookmarks.classList.add("is-active");
+  discussionTitle.textContent = "我的書籤";
+  discussionDescription.textContent = "顯示已標示書籤的討論串。";
+  await loadThreads("/api/bookmarks", "目前沒有已加入書籤的討論串。");
+}
+
+showBookmarksButton.addEventListener("click", showBookmarks);
+portalBookmarks.addEventListener("click", showBookmarks);
+
+restoreSession();
+

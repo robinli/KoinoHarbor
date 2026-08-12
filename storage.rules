@@ -1,0 +1,49 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    function activeUser() {
+      return request.auth != null
+        && firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.active == true;
+    }
+
+    function isAdmin() {
+      let role = firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role;
+      return activeUser() && role == 'admin';
+    }
+
+    function isSpaceMember(spaceId) {
+      return activeUser()
+        && firestore.exists(/databases/(default)/documents/spaces/$(spaceId)/members/$(request.auth.uid));
+    }
+
+    function canAccessSpace(spaceId) {
+      return isAdmin() || isSpaceMember(spaceId);
+    }
+
+    function allowedContentType() {
+      return request.resource.contentType.matches('image/(jpeg|png|webp)')
+        || request.resource.contentType == 'application/pdf'
+        || request.resource.contentType == 'application/msword'
+        || request.resource.contentType == 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        || request.resource.contentType == 'application/vnd.ms-excel'
+        || request.resource.contentType == 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        || request.resource.contentType == 'application/vnd.ms-powerpoint'
+        || request.resource.contentType == 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+        || request.resource.contentType == 'application/zip';
+    }
+
+    match /spaces/{spaceId}/threads/{threadId}/{fileName} {
+      allow read: if canAccessSpace(spaceId);
+      allow create: if canAccessSpace(spaceId)
+        && request.resource.size > 0
+        && request.resource.size <= 20 * 1024 * 1024
+        && allowedContentType();
+      allow update, delete: if false;
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

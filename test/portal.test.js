@@ -1,0 +1,88 @@
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import test from "node:test";
+
+const indexUrl = new URL("../public/index.html", import.meta.url);
+const scriptUrl = new URL("../public/app.js", import.meta.url);
+const stylesUrl = new URL("../public/styles.css", import.meta.url);
+const modernStylesUrl = new URL("../public/modern.css", import.meta.url);
+const firebaseStoresUrl = new URL("../src/firebase-stores.js", import.meta.url);
+
+test("portal shell exposes the ordered account, Space, bookmark and admin entry points", async () => {
+  const html = await readFile(indexUrl, "utf8");
+
+  for (const marker of [
+    'id="portal-shell"',
+    'data-portal-view="home"',
+    'data-portal-view="discussions"',
+    'data-portal-view="spaces"',
+    'data-portal-view="admin"',
+    'id="dashboard-space-filter"',
+    'id="create-thread-dialog"',
+    'id="thread-edit-dialog"',
+    'id="status-edit-dialog"',
+    'id="profile-dialog"',
+    'id="portal-profile-button"',
+    'id="portal-all-spaces"',
+  ]) {
+    assert.match(html, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  }
+
+  assert.doesNotMatch(html, /class="primary-action"[^>]*data-open-thread-dialog/);
+  assert.match(html, /id="portal-admin-nav"[^>]*data-portal-target="admin"[^>]*hidden[^>]*>⚙️<\/button>/);
+  assert.match(html, /id="portal-profile-button"[\s\S]*?登入者[\s\S]*?id="portal-user-name"/);
+  assert.match(html, /id="portal-all-spaces"[^>]*>全部工作區<\/button>/);
+  assert.match(html, /class="sidebar-brand"[\s\S]*?id="portal-profile-button"[\s\S]*?id="portal-all-spaces"[\s\S]*?id="portal-space-list"[\s\S]*?id="portal-bookmarks"[\s\S]*?id="portal-logout-button"/);
+  assert.match(html, />工作區管理<\/button>/);
+  assert.doesNotMatch(html, />[^<]*\bSpace\b[^<]*</);
+  assert.match(html, /使用者管理[\s\S]*使用者與角色[\s\S]*新增使用者/);
+  assert.match(html, /id="user-create-form"/);
+  assert.match(html, /id="forgot-password-form"/);
+  assert.match(html, /忘記密碼？/);
+  assert.doesNotMatch(html, /id="public-intro"|class="status-card"|class="milestones"|<footer>/);
+});
+
+test("portal client aggregates accessible threads and disables creation without a Space", async () => {
+  const script = await readFile(scriptUrl, "utf8");
+
+  assert.match(script, /fetch\("\/api\/threads"/);
+  assert.match(script, /dashboardSpaceFilter\.value/);
+  assert.match(script, /button\.disabled = !activeSpaces\.length/);
+  assert.match(script, /portalAdminNav\.hidden = user\.role !== "admin"/);
+  assert.match(script, /fetch\("\/api\/auth\/me", \{\s*method: "PATCH"/);
+  assert.match(script, /function showSpaceOverview\(spaceId = null\)/);
+  assert.match(script, /button\.dataset\.spaceId = space\.id/);
+  assert.match(script, /loadThreads\("\/api\/bookmarks", "目前沒有已加入書籤的討論串。"\)/);
+  assert.match(script, /spaceId: formData\.get\("spaceId"\)/);
+  assert.match(script, /function resetPortalData\(\)/);
+  assert.match(script, /function showUser\(user\) \{\s*resetPortalData\(\)/);
+  assert.match(script, /function showLogin\(\) \{\s*resetPortalData\(\)/);
+  assert.match(script, /password: formData\.get\("password"\)/);
+  assert.match(script, /\.\.\.\(password\.value \? \{ password: password\.value \} : \{\}\)/);
+  assert.match(script, /accounts:sendOobCode/);
+  assert.match(script, /requestType: "PASSWORD_RESET"/);
+  assert.match(script, /method: "DELETE"/);
+  assert.match(script, /className = "delete-status-button"/);
+});
+
+test("portal styles preserve hidden state, keyboard focus and mobile single-column layout", async () => {
+  const styles = await readFile(stylesUrl, "utf8");
+  const modernStyles = await readFile(modernStylesUrl, "utf8");
+
+  assert.match(styles, /\[hidden\]\s*\{[^}]*display:\s*none\s*!important/s);
+  assert.match(styles, /:focus-visible/);
+  assert.match(styles, /@media \(max-width: 720px\)[\s\S]*\.portal-shell\s*\{[^}]*grid-template-columns:\s*1fr/s);
+  assert.match(styles, /@media \(max-width: 720px\)[\s\S]*\.portal-nav\s*\{[^}]*overflow-x:\s*auto/s);
+  assert.match(modernStyles, /\.portal-shell\s*\{[^}]*width:\s*100vw[^}]*height:\s*100vh/s);
+  assert.match(modernStyles, /\.portal-active main\s*\{[^}]*width:\s*100%[^}]*margin:\s*0/s);
+  assert.match(modernStyles, /@media \(max-width: 720px\)[\s\S]*\.portal-shell\s*\{[^}]*grid-template-columns:\s*1fr/s);
+});
+
+test("Firebase portal reads avoid unnecessary composite-index dependencies at POC scale", async () => {
+  const stores = await readFile(firebaseStoresUrl, "utf8");
+
+  assert.doesNotMatch(stores, /collectionGroup\("members"\)\.where/);
+  assert.match(stores, /statuses\.orderBy\("sortOrder"\)\.get\(\)/);
+  assert.match(stores, /results\.filter\(\(status\) => status\.active\)/);
+});
+
