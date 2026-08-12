@@ -32,6 +32,7 @@ test("portal shell exposes the ordered account, Space, bookmark and admin entry 
   assert.match(html, /id="portal-admin-nav"[^>]*data-portal-target="admin"[^>]*hidden[^>]*>⚙️<\/button>/);
   assert.match(html, /id="portal-profile-button"[\s\S]*?登入者[\s\S]*?id="portal-user-name"/);
   assert.match(html, /id="portal-all-spaces"[^>]*>全部工作區<\/button>/);
+  assert.doesNotMatch(html, /id="portal-all-spaces"[^>]*data-portal-target="spaces"/);
   assert.match(html, /class="sidebar-brand"[\s\S]*?id="portal-profile-button"[\s\S]*?id="portal-all-spaces"[\s\S]*?id="portal-space-list"[\s\S]*?id="portal-bookmarks"[\s\S]*?id="portal-logout-button"/);
   assert.match(html, />工作區管理<\/button>/);
   assert.doesNotMatch(html, />[^<]*\bSpace\b[^<]*</);
@@ -51,7 +52,11 @@ test("portal client aggregates accessible threads and disables creation without 
   assert.match(script, /portalAdminNav\.hidden = user\.role !== "admin"/);
   assert.match(script, /fetch\("\/api\/auth\/me", \{\s*method: "PATCH"/);
   assert.match(script, /function showSpaceOverview\(spaceId = null\)/);
+  assert.match(script, /async function showWorkspaceThreads\(spaceId = null\)/);
+  assert.match(script, /threadSpaceFilter\.value = selectedThreadSpaceId \?\? ""/);
   assert.match(script, /button\.dataset\.spaceId = space\.id/);
+  assert.match(script, /button\.addEventListener\("click", \(\) => showWorkspaceThreads\(space\.id\)\)/);
+  assert.match(script, /portalAllSpaces\.addEventListener\("click", \(\) => showWorkspaceThreads\(\)\)/);
   assert.match(script, /loadThreads\("\/api\/bookmarks", "目前沒有已加入書籤的討論串。"\)/);
   assert.match(script, /spaceId: formData\.get\("spaceId"\)/);
   assert.match(script, /function resetPortalData\(\)/);

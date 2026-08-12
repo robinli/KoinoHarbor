@@ -59,6 +59,7 @@ let availableStatuses = [];
 let signedInUser = null;
 let runtimeConfig = null;
 let selectedSidebarSpaceId = null;
+let selectedThreadSpaceId = null;
 
 function enhanceBootstrapUI(root = document) {
   const selectAll = (selector) => [
@@ -123,15 +124,44 @@ function resetPortalData() {
   threadStatusSelect.replaceChildren();
   threadEditStatusSelect.replaceChildren();
   selectedSidebarSpaceId = null;
+  selectedThreadSpaceId = null;
 }
 
 function showPortalView(viewName) {
   for (const view of document.querySelectorAll("[data-portal-view]")) {
     view.hidden = view.dataset.portalView !== viewName;
   }
-  for (const button of document.querySelectorAll(".portal-sidebar [data-portal-target], .portal-space-links button, #portal-bookmarks")) {
+  for (const button of document.querySelectorAll(".portal-sidebar [data-portal-target], #portal-bookmarks")) {
     button.classList.toggle("is-active", button.dataset.portalTarget === viewName);
   }
+  portalAllSpaces.classList.remove("is-active");
+  for (const button of portalSpaceList.querySelectorAll("button[data-space-id]")) {
+    button.classList.remove("is-active");
+  }
+}
+
+function updateWorkspaceThreadNavigation(spaceId = null, active = true) {
+  portalAllSpaces.classList.toggle("is-active", active && !spaceId);
+  for (const button of portalSpaceList.querySelectorAll("button[data-space-id]")) {
+    button.classList.toggle("is-active", active && button.dataset.spaceId === spaceId);
+  }
+}
+
+function updateDiscussionHeading(space = null) {
+  discussionTitle.textContent = space?.name ?? "全部工作區";
+  discussionDescription.textContent = space
+    ? `顯示「${space.name}」工作區的討論串。`
+    : "顯示所有已授權工作區的討論串。";
+}
+
+async function showWorkspaceThreads(spaceId = null) {
+  const selectedSpace = availableSpaces.find((space) => !space.archived && space.id === spaceId) ?? null;
+  selectedThreadSpaceId = selectedSpace?.id ?? null;
+  showPortalView("discussions");
+  threadSpaceFilter.value = selectedThreadSpaceId ?? "";
+  updateDiscussionHeading(selectedSpace);
+  updateWorkspaceThreadNavigation(selectedThreadSpaceId);
+  await loadThreads();
 }
 
 function createThreadSummary(thread) {
@@ -151,9 +181,7 @@ function createThreadSummary(thread) {
   openButton.type = "button";
   openButton.textContent = "開啟討論";
   openButton.addEventListener("click", async () => {
-    showPortalView("discussions");
-    if (space) threadSpaceFilter.value = space.id;
-    await loadThreads();
+    await showWorkspaceThreads(space?.id ?? null);
   });
   card.append(meta, title, content, openButton);
   return card;
@@ -176,9 +204,7 @@ async function loadDashboard() {
     item.type = "button";
     item.textContent = thread.title;
     item.addEventListener("click", async () => {
-      showPortalView("discussions");
-      threadSpaceFilter.value = thread.spaceId;
-      await loadThreads();
+      await showWorkspaceThreads(thread.spaceId);
     });
     return item;
   }));
@@ -376,10 +402,6 @@ function renderSpaceOverview() {
     spaceList.append(empty);
   }
 
-  portalAllSpaces.classList.toggle("is-active", !selectedSpace);
-  for (const button of portalSpaceList.querySelectorAll("button[data-space-id]")) {
-    button.classList.toggle("is-active", button.dataset.spaceId === selectedSpace?.id);
-  }
 }
 
 function showSpaceOverview(spaceId = null) {
@@ -486,7 +508,7 @@ async function loadSpaces() {
     });
     const payload = await readJsonResponse(response);
     availableSpaces = payload.spaces;
-    const previousSpaceId = threadSpaceFilter.value;
+    const previousSpaceId = selectedThreadSpaceId ?? threadSpaceFilter.value;
     const previousCreateSpaceId = threadSpaceSelect.value;
     const activeSpaces = payload.spaces.filter((space) => !space.archived);
     const spaceOptions = activeSpaces
@@ -505,6 +527,10 @@ async function loadSpaces() {
     threadSpaceSelect.replaceChildren(...spaceOptions.map((option) => option.cloneNode(true)));
     if (payload.spaces.some((space) => space.id === previousSpaceId && !space.archived)) {
       threadSpaceFilter.value = previousSpaceId;
+      selectedThreadSpaceId = previousSpaceId;
+    } else {
+      threadSpaceFilter.value = "";
+      selectedThreadSpaceId = null;
     }
     if (payload.spaces.some((space) => space.id === previousCreateSpaceId && !space.archived)) {
       threadSpaceSelect.value = previousCreateSpaceId;
@@ -514,7 +540,7 @@ async function loadSpaces() {
       button.type = "button";
       button.textContent = space.name;
       button.dataset.spaceId = space.id;
-      button.addEventListener("click", () => showSpaceOverview(space.id));
+      button.addEventListener("click", () => showWorkspaceThreads(space.id));
       return button;
     }));
     if (!activeSpaces.length) {
@@ -526,6 +552,11 @@ async function loadSpaces() {
       selectedSidebarSpaceId = null;
     }
     renderSpaceOverview();
+    if (!discussionPanel.hidden) {
+      const selectedSpace = activeSpaces.find((space) => space.id === selectedThreadSpaceId) ?? null;
+      updateDiscussionHeading(selectedSpace);
+      updateWorkspaceThreadNavigation(selectedThreadSpaceId);
+    }
     for (const button of document.querySelectorAll("[data-open-thread-dialog]")) {
       button.disabled = !activeSpaces.length;
       button.title = activeSpaces.length ? "新增討論" : "加入工作區後才能新增討論";
@@ -826,9 +857,9 @@ function showUser(user) {
   userAdmin.hidden = user.role !== "admin";
   spaceForm.hidden = user.role !== "admin";
   statusForm.hidden = user.role !== "admin";
-  discussionTitle.textContent = "全部討論";
-  discussionDescription.textContent = "依工作區、狀態或關鍵字尋找工作討論。";
-  showSpaceOverview();
+  updateDiscussionHeading();
+  showPortalView("discussions");
+  updateWorkspaceThreadNavigation();
 
   const initialize = async () => {
     if (user.role === "admin") await loadUsers();
@@ -1145,8 +1176,9 @@ profileForm.addEventListener("submit", async (event) => {
   }
 });
 
-threadSpaceFilter.addEventListener("change", () => loadThreads());
+threadSpaceFilter.addEventListener("change", () => showWorkspaceThreads(threadSpaceFilter.value || null));
 dashboardSpaceFilter.addEventListener("change", () => loadDashboard());
+portalAllSpaces.addEventListener("click", () => showWorkspaceThreads());
 
 for (const button of document.querySelectorAll("[data-portal-target]")) {
   button.addEventListener("click", async () => {
@@ -1158,9 +1190,7 @@ for (const button of document.querySelectorAll("[data-portal-target]")) {
     showPortalView(viewName);
     if (viewName === "home") await loadDashboard();
     if (viewName === "discussions") {
-      discussionTitle.textContent = "全部討論";
-      discussionDescription.textContent = "依工作區、狀態或關鍵字尋找工作討論。";
-      await loadThreads();
+      await showWorkspaceThreads();
     }
   });
 }
@@ -1177,14 +1207,20 @@ for (const button of document.querySelectorAll("[data-open-thread-dialog]")) {
 searchForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const query = new FormData(searchForm).get("query");
+  selectedThreadSpaceId = null;
   showPortalView("discussions");
+  threadSpaceFilter.value = "";
+  updateWorkspaceThreadNavigation(null, false);
   discussionTitle.textContent = "搜尋結果";
   discussionDescription.textContent = `顯示「${query}」的搜尋結果。`;
   await loadThreads(`/api/search?q=${encodeURIComponent(query)}`);
 });
 
 async function showBookmarks() {
+  selectedThreadSpaceId = null;
   showPortalView("discussions");
+  threadSpaceFilter.value = "";
+  updateWorkspaceThreadNavigation(null, false);
   portalBookmarks.classList.add("is-active");
   discussionTitle.textContent = "我的書籤";
   discussionDescription.textContent = "顯示已標示書籤的討論串。";
