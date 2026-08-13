@@ -168,14 +168,14 @@ export function createFirestoreDiscussionStore(app) {
       if (input.statusId && !(await statuses.doc(input.statusId).get()).exists) throw validationError("指定的討論狀態不存在。");
       const reference = threads.doc();
       const now = serverTimestamp();
-      await reference.set({ archived: false, authorId: actor.id, content: requiredText(input.content, "討論內容"), createdAt: now, createdBy: actor.id, pinned: false, spaceId: requiredText(input.spaceId, "工作區"), statusId: input.statusId || null, title: requiredText(input.title, "討論標題"), updatedAt: now, updatedBy: actor.id });
+      await reference.set({ archived: false, authorId: actor.id, content: requiredText(input.content, "討論內容"), createdAt: now, createdBy: actor.id, deleted: false, pinned: false, spaceId: requiredText(input.spaceId, "工作區"), statusId: input.statusId || null, title: requiredText(input.title, "討論標題"), updatedAt: now, updatedBy: actor.id });
       return plain(await reference.get());
     },
     async getThread(id) { return plain(await threads.doc(id).get()); },
     async listThreads(spaceIds) {
       if (!spaceIds.length) return [];
       const snapshots = await Promise.all(spaceIds.map((spaceId) => threads.where("spaceId", "==", spaceId).get()));
-      return snapshots.flatMap((snapshot) => snapshot.docs.map(plain)).sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt.localeCompare(a.updatedAt));
+      return snapshots.flatMap((snapshot) => snapshot.docs.map(plain)).filter((thread) => !thread.deleted).sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt.localeCompare(a.updatedAt));
     },
     async updateThread(id, changes, actor, canModerate) {
       const reference = threads.doc(id);
@@ -197,6 +197,10 @@ export function createFirestoreDiscussionStore(app) {
         if (typeof changes[field] !== "boolean") throw validationError(`${field} 必須是布林值。`);
         update[field] = changes[field];
       }
+      if (changes.deleted !== undefined) {
+        if (typeof changes.deleted !== "boolean") throw validationError("deleted 必須是布林值。");
+        update.deleted = changes.deleted;
+      }
       await reference.update(update);
       return plain(await reference.get());
     },
@@ -207,21 +211,28 @@ export function createFirestoreDiscussionStore(app) {
       if (parentReplyId && !(await parent.collection("replies").doc(parentReplyId).get()).exists) throw validationError("指定的父回覆不存在。");
       const reference = parent.collection("replies").doc();
       const now = serverTimestamp();
-      await reference.set({ authorId: actor.id, content: requiredText(input.content, "回覆內容"), createdAt: now, createdBy: actor.id, parentReplyId, threadId, updatedAt: now, updatedBy: actor.id });
+      await reference.set({ authorId: actor.id, content: requiredText(input.content, "回覆內容"), createdAt: now, createdBy: actor.id, deleted: false, parentReplyId, threadId, updatedAt: now, updatedBy: actor.id });
       await parent.update({ updatedAt: now, updatedBy: actor.id });
       return plain(await reference.get());
     },
     async listReplies(threadId) {
       if (!(await threads.doc(threadId).get()).exists) return null;
-      return (await threads.doc(threadId).collection("replies").orderBy("createdAt").get()).docs.map(plain);
+      return (await threads.doc(threadId).collection("replies").orderBy("createdAt").get()).docs.map(plain).filter((reply) => !reply.deleted);
     },
     async getReply(threadId, replyId) { return plain(await threads.doc(threadId).collection("replies").doc(replyId).get()); },
-    async updateReply(threadId, replyId, content, actor, _canModerate) {
+    async updateReply(threadId, replyId, changes, actor, _canModerate) {
       const reference = threads.doc(threadId).collection("replies").doc(replyId);
       const current = plain(await reference.get());
       if (!current) return null;
       if (actor.id !== current.authorId) { const error = new Error("只能修改自己的回覆。"); error.statusCode = 403; throw error; }
-      await reference.update({ content: requiredText(content, "回覆內容"), updatedAt: serverTimestamp(), updatedBy: actor.id });
+      const update = typeof changes === "string" ? { content: changes } : changes;
+      const values = { updatedAt: serverTimestamp(), updatedBy: actor.id };
+      if (update.content !== undefined) values.content = requiredText(update.content, "回覆內容");
+      if (update.deleted !== undefined) {
+        if (typeof update.deleted !== "boolean") throw validationError("deleted 必須是布林值。");
+        values.deleted = update.deleted;
+      }
+      await reference.update(values);
       return plain(await reference.get());
     },
     async setBookmark(userId, threadId, bookmarked) {
@@ -233,7 +244,7 @@ export function createFirestoreDiscussionStore(app) {
     async listBookmarks(userId, allowedSpaceIds) {
       const snapshot = await firestore.collection("users").doc(userId).collection("bookmarks").get();
       const documents = await Promise.all(snapshot.docs.map((bookmark) => threads.doc(bookmark.id).get()));
-      return documents.map(plain).filter((thread) => thread && allowedSpaceIds.includes(thread.spaceId));
+      return documents.map(plain).filter((thread) => thread && !thread.deleted && allowedSpaceIds.includes(thread.spaceId));
     },
     async search(query, allowedSpaceIds) {
       const needle = requiredText(query, "搜尋關鍵字").toLocaleLowerCase("zh-Hant");

@@ -205,6 +205,11 @@ export function createApplicationServer(options = {}) {
     return (await spaceStore.listSpaces(user)).map((space) => space.id);
   }
 
+  async function markBookmarkedThreads(threads, user, allowedSpaceIds) {
+    const bookmarkedIds = new Set((await discussionStore.listBookmarks(user.id, allowedSpaceIds)).map((thread) => thread.id));
+    return threads.map((thread) => ({ ...thread, bookmarked: bookmarkedIds.has(thread.id) }));
+  }
+
   return http.createServer(async (request, response) => {
     try {
       const requestUrl = new URL(request.url ?? "/", "http://localhost");
@@ -601,7 +606,11 @@ export function createApplicationServer(options = {}) {
           return;
         }
         sendJson(response, 200, {
-          threads: await discussionStore.listThreads(requestedSpaceId ? [requestedSpaceId] : allowedSpaceIds),
+          threads: await markBookmarkedThreads(
+            await discussionStore.listThreads(requestedSpaceId ? [requestedSpaceId] : allowedSpaceIds),
+            currentUser,
+            allowedSpaceIds,
+          ),
         });
         return;
       }
@@ -699,7 +708,7 @@ export function createApplicationServer(options = {}) {
         const reply = await discussionStore.updateReply(
           threadId,
           decodeURIComponent(replyRouteMatch[2]),
-          body.content,
+          body,
           currentUser,
           false,
         );
@@ -739,8 +748,10 @@ export function createApplicationServer(options = {}) {
       if (request.method === "GET" && requestUrl.pathname === "/api/bookmarks") {
         const currentUser = requireUser(request, response, authService);
         if (!currentUser) return;
+        const allowedSpaceIds = await accessibleSpaceIds(currentUser);
         sendJson(response, 200, {
-          threads: await discussionStore.listBookmarks(currentUser.id, await accessibleSpaceIds(currentUser)),
+          threads: (await discussionStore.listBookmarks(currentUser.id, allowedSpaceIds))
+            .map((thread) => ({ ...thread, bookmarked: true })),
         });
         return;
       }
@@ -749,9 +760,10 @@ export function createApplicationServer(options = {}) {
         const currentUser = requireUser(request, response, authService);
         if (!currentUser) return;
         const query = requestUrl.searchParams.get("q") ?? "";
+        const allowedSpaceIds = await accessibleSpaceIds(currentUser);
         sendJson(response, 200, {
           query,
-          threads: await discussionStore.search(query, await accessibleSpaceIds(currentUser)),
+          threads: await markBookmarkedThreads(await discussionStore.search(query, allowedSpaceIds), currentUser, allowedSpaceIds),
         });
         return;
       }
