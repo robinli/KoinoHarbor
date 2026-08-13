@@ -85,6 +85,16 @@ test("portal client aggregates accessible threads and disables creation without 
   assert.match(script, /thread\.archived \? "取消封存" : "封存"/);
   assert.match(script, /parentReplyId: reply\.id/);
   assert.match(script, /const canEditReply = signedInUser\.id === reply\.authorId/);
+  assert.match(script, /function formatRelativeTime\(value\)/);
+  assert.match(script, /elapsedSeconds >= 604_800/);
+  assert.match(script, /timestamp\.getFullYear\(\) !== now\.getFullYear\(\)/);
+  assert.match(script, /\$\{amount\} \$\{label\}\$\{amount !== 1 \? "s" : ""\} ago/);
+  assert.match(script, /function formatFullDateTime\(value\)/);
+  assert.match(script, /author\.textContent = `\$\{authorName\} \/ `;/);
+  assert.match(script, /timestamp\.title = formatFullDateTime\(message\.updatedAt\)/);
+  assert.match(script, /edited\.textContent = " \(edited\)"/);
+  assert.match(script, /titleLine\.append\(title, createAuthorMetadata\(thread\)\)/);
+  assert.match(script, /message\.append\(authorMeta, content, attachmentList, actions\)/);
   assert.match(script, /className = "message-edit-form thread-inline-editor"/);
   assert.match(script, /fetch\(`\/api\/attachments\/\$\{encodeURIComponent\(attachmentId\)\}`,[\s\S]*?method: "DELETE"/);
   assert.match(script, /await uploadAttachments\(payload\.thread\.id, threadCreationFilePicker\.files\)/);
@@ -108,6 +118,9 @@ test("portal styles preserve hidden state, keyboard focus and mobile single-colu
   assert.match(modernStyles, /\.thread-menu-list\s*\{[^}]*position:\s*absolute/s);
   assert.match(modernStyles, /\.message-composer\s*,\s*\.message-edit-form\s*\{/);
   assert.match(modernStyles, /\.reply-children\s*\{/);
+  assert.match(modernStyles, /\.thread-title-line\s*\{/);
+  assert.match(modernStyles, /\.message-author-meta\s*\{/);
+  assert.match(modernStyles, /\.message-edited\s*\{/);
   assert.match(modernStyles, /\.inline-thread-form\s*\{/);
 });
 

@@ -187,13 +187,20 @@ function updateDiscussionHeading(space = null) {
 }
 
 function formatRelativeTime(value) {
-  const timestamp = new Date(value).getTime();
-  if (!Number.isFinite(timestamp)) return "unknown time";
+  const timestamp = new Date(value);
+  if (!Number.isFinite(timestamp.getTime())) return "unknown time";
 
-  const elapsedSeconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1_000));
+  const now = new Date();
+  const elapsedSeconds = Math.max(0, Math.floor((now.getTime() - timestamp.getTime()) / 1_000));
+  if (elapsedSeconds >= 604_800) {
+    return new Intl.DateTimeFormat("en-US", {
+      day: "numeric",
+      month: "short",
+      ...(timestamp.getFullYear() !== now.getFullYear() ? { year: "numeric" } : {}),
+    }).format(timestamp);
+  }
+
   const units = [
-    [31_536_000, "yr"],
-    [2_592_000, "mo"],
     [86_400, "day"],
     [3_600, "hr"],
     [60, "min"],
@@ -203,7 +210,7 @@ function formatRelativeTime(value) {
 
   const [seconds, label] = unit;
   const amount = Math.floor(elapsedSeconds / seconds);
-  return `${amount} ${label}${label === "day" && amount !== 1 ? "s" : ""} before`;
+  return `${amount} ${label}${amount !== 1 ? "s" : ""} ago`;
 }
 
 function formatFullDateTime(value) {
