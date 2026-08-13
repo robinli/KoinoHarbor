@@ -25,6 +25,9 @@ test("attachment store validates, writes, lists and reads files", async (context
   assert.equal(store.listForThread("thread-1").length, 1);
   const file = await store.read(attachment.id);
   assert.deepEqual(file.content, original);
+  assert.equal((await store.delete(attachment.id)).id, attachment.id);
+  assert.equal(store.getMetadata(attachment.id), null);
+  assert.equal(await store.read(attachment.id), null);
 });
 
 test("attachment store rejects unsupported and oversized files", async (context) => {

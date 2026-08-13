@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024;
@@ -101,6 +101,14 @@ export function createLocalAttachmentStore(options = {}) {
         content: await readFile(path.join(directory, attachment.storagePath)),
         metadata: structuredClone(attachment),
       };
+    },
+
+    async delete(attachmentId) {
+      const attachment = metadata.get(attachmentId);
+      if (!attachment) return null;
+      await rm(path.join(directory, attachment.storagePath), { force: true });
+      metadata.delete(attachmentId);
+      return structuredClone(attachment);
     },
   });
 }

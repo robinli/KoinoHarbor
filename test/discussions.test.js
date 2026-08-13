@@ -43,7 +43,11 @@ test("thread, replies, moderation, bookmarks and search work together", () => {
   }, member);
 
   const reply = store.createReply(thread.id, { content: "已確認是稅率格式造成" }, admin);
-  assert.equal(store.listReplies(thread.id).length, 1);
+  const nestedReply = store.createReply(thread.id, { content: "收到，稍後複驗", parentReplyId: reply.id }, member);
+  assert.equal(store.listReplies(thread.id).length, 2);
+  assert.equal(store.getReply(thread.id, nestedReply.id).parentReplyId, reply.id);
+  assert.throws(() => store.createReply(thread.id, { content: "錯誤父回覆", parentReplyId: "missing" }, member), /父回覆不存在/);
+  assert.throws(() => store.updateReply(thread.id, nestedReply.id, "管理員不可代改", admin, true), /只能修改自己的回覆/);
 
   const editedReply = store.updateReply(thread.id, reply.id, "已確認是稅率格式造成，正在修正", admin, true);
   assert.match(editedReply.content, /正在修正/);
