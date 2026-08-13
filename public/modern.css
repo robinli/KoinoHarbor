@@ -909,7 +909,8 @@ textarea.form-control {
 }
 
 .attachment-list {
-  display: grid;
+  display: flex;
+  flex-wrap: wrap;
   gap: 6px;
 }
 
@@ -918,6 +919,9 @@ textarea.form-control {
 }
 
 .attachment-row {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
   min-height: 34px;
   padding: 6px 9px;
   border: 1px solid var(--kh-line);
@@ -926,7 +930,7 @@ textarea.form-control {
 }
 
 .attachment-identity {
-  display: inline-flex;
+  display: flex;
   min-width: 0;
   gap: 7px;
   align-items: center;
@@ -974,15 +978,16 @@ textarea.form-control {
 }
 
 .selected-attachment-list {
-  display: grid;
+  display: flex;
+  flex-wrap: wrap;
   gap: 6px;
 }
 
 .selected-attachment {
-  display: flex;
+  display: inline-flex;
+  max-width: 100%;
   gap: 10px;
   align-items: center;
-  justify-content: space-between;
   padding: 6px 9px;
   border: 1px dashed var(--kh-line-strong);
   border-radius: 8px;
