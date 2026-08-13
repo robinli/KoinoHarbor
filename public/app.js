@@ -17,12 +17,12 @@ const discussionPanel = document.querySelector("#discussion-panel");
 const statusForm = document.querySelector("#status-form");
 const statusList = document.querySelector("#status-list");
 const threadSpaceFilter = document.querySelector("#thread-space-filter");
+const threadStatusFilter = document.querySelector("#thread-status-filter");
 const threadForm = document.querySelector("#thread-form");
 const threadStatusSelect = document.querySelector("#thread-status-select");
 const threadList = document.querySelector("#thread-list");
 const discussionMessage = document.querySelector("#discussion-message");
 const searchForm = document.querySelector("#search-form");
-const showBookmarksButton = document.querySelector("#show-bookmarks");
 const authCard = document.querySelector("#auth-card");
 const portalShell = document.querySelector("#portal-shell");
 const portalAvatar = document.querySelector(".portal-avatar");
@@ -38,7 +38,6 @@ const spacesEyebrow = document.querySelector("#spaces-eyebrow");
 const spacesTitle = document.querySelector("#spaces-title");
 const spacesDescription = document.querySelector("#spaces-description");
 const discussionTitle = document.querySelector("#discussion-title");
-const discussionDescription = document.querySelector("#discussion-description");
 const dashboardThreadList = document.querySelector("#dashboard-thread-list");
 const dashboardSpaceFilter = document.querySelector("#dashboard-space-filter");
 const announcementList = document.querySelector("#announcement-list");
@@ -56,6 +55,31 @@ let signedInUser = null;
 let runtimeConfig = null;
 let selectedSidebarSpaceId = null;
 let selectedThreadSpaceId = null;
+const messageTimers = new WeakMap();
+
+function setSystemMessage(messageElement, message, type = "success") {
+  const existingTimer = messageTimers.get(messageElement);
+  if (existingTimer) window.clearTimeout(existingTimer);
+  messageTimers.delete(messageElement);
+  messageElement.replaceChildren();
+  messageElement.classList.remove("is-success", "is-error");
+  if (!message) return;
+
+  const text = document.createElement("span");
+  text.textContent = message;
+  const closeButton = document.createElement("button");
+  closeButton.type = "button";
+  closeButton.className = "system-message-close";
+  closeButton.setAttribute("aria-label", "關閉訊息");
+  closeButton.textContent = "×";
+  closeButton.addEventListener("click", () => setSystemMessage(messageElement, ""));
+  messageElement.classList.add(type === "error" ? "is-error" : "is-success");
+  messageElement.append(text, closeButton);
+
+  if (type === "success") {
+    messageTimers.set(messageElement, window.setTimeout(() => setSystemMessage(messageElement, ""), 8_000));
+  }
+}
 
 function enhanceBootstrapUI(root = document) {
   const selectAll = (selector) => [
@@ -129,6 +153,7 @@ function resetPortalData() {
   statusSummary.replaceChildren();
   portalSpaceList.replaceChildren();
   threadSpaceFilter.replaceChildren();
+  threadStatusFilter.replaceChildren();
   dashboardSpaceFilter.replaceChildren();
   threadSpaceSelect.replaceChildren();
   threadStatusSelect.replaceChildren();
@@ -159,9 +184,6 @@ function updateWorkspaceThreadNavigation(spaceId = null, active = true) {
 
 function updateDiscussionHeading(space = null) {
   discussionTitle.textContent = space?.name ?? "全部工作區";
-  discussionDescription.textContent = space
-    ? `顯示「${space.name}」工作區的討論串。`
-    : "顯示所有已授權工作區的討論串。";
 }
 
 async function showWorkspaceThreads(spaceId = null) {
@@ -308,9 +330,9 @@ function createUserRow(user) {
       await readJsonResponse(response);
       const changedPassword = Boolean(password.value);
       password.value = "";
-      userAdminMessage.textContent = `已更新 ${user.email} 的名稱${changedPassword ? "與密碼" : ""}。`;
+      setSystemMessage(userAdminMessage, `已更新 ${user.email} 的名稱${changedPassword ? "與密碼" : ""}。`);
     } catch (error) {
-      userAdminMessage.textContent = error.message;
+      setSystemMessage(userAdminMessage, error.message, "error");
     } finally {
       saveButton.disabled = false;
     }
@@ -332,7 +354,7 @@ async function loadUsers() {
     availableUsers = payload.users;
     userTableBody.replaceChildren(...payload.users.map(createUserRow));
   } catch (error) {
-    userAdminMessage.textContent = error.message;
+    setSystemMessage(userAdminMessage, error.message, "error");
   }
 }
 
@@ -355,9 +377,9 @@ userCreateForm.addEventListener("submit", async (event) => {
     const payload = await readJsonResponse(response);
     userCreateForm.reset();
     await loadUsers();
-    userAdminMessage.textContent = `已新增 ${payload.user.email}。`;
+    setSystemMessage(userAdminMessage, `已新增 ${payload.user.email}。`);
   } catch (error) {
-    userAdminMessage.textContent = error.message;
+    setSystemMessage(userAdminMessage, error.message, "error");
   }
 });
 
@@ -495,14 +517,14 @@ function createSpaceCard(space) {
         await readJsonResponse(response);
         await loadSpaceMembers(space.id, memberList);
       } catch (error) {
-        spaceMessage.textContent = error.message;
+        setSystemMessage(spaceMessage, error.message, "error");
       }
     });
     control.append(userSelect, roleSelect, addButton);
     editor.append(editorTitle, control, memberList);
     card.append(editor);
     loadSpaceMembers(space.id, memberList).catch((error) => {
-      spaceMessage.textContent = error.message;
+      setSystemMessage(spaceMessage, error.message, "error");
     });
   }
 
@@ -578,7 +600,7 @@ async function loadSpaces() {
       button.title = activeSpaces.length ? "新增討論" : "加入工作區後才能新增討論";
     }
   } catch (error) {
-    spaceMessage.textContent = error.message;
+    setSystemMessage(spaceMessage, error.message, "error");
   }
 }
 
@@ -629,9 +651,9 @@ function createStatusChip(status) {
           });
           await readJsonResponse(response);
           await loadStatuses();
-          discussionMessage.textContent = `已刪除討論狀態「${status.name}」。`;
+          setSystemMessage(discussionMessage, `已刪除討論狀態「${status.name}」。`);
         } catch (error) {
-          discussionMessage.textContent = error.message;
+          setSystemMessage(discussionMessage, error.message, "error");
         }
       });
       chip.append(deleteButton);
@@ -648,6 +670,21 @@ async function loadStatuses() {
   const payload = await readJsonResponse(response);
   availableStatuses = payload.statuses;
   statusList.replaceChildren(...availableStatuses.map(createStatusChip));
+  const selectedStatusId = threadStatusFilter.value;
+  threadStatusFilter.replaceChildren();
+  const allStatuses = document.createElement("option");
+  allStatuses.value = "";
+  allStatuses.textContent = "全部狀態";
+  threadStatusFilter.append(allStatuses);
+  for (const status of availableStatuses.filter((item) => item.active)) {
+    const option = document.createElement("option");
+    option.value = status.id;
+    option.textContent = status.name;
+    threadStatusFilter.append(option);
+  }
+  if ([...threadStatusFilter.options].some((option) => option.value === selectedStatusId)) {
+    threadStatusFilter.value = selectedStatusId;
+  }
   threadStatusSelect.replaceChildren();
   const noStatus = document.createElement("option");
   noStatus.value = "";
@@ -842,7 +879,7 @@ function createReplyComposer(thread, { parentReplyId = null, onCancel, onComplet
       fileControl.picker.reset();
       await onComplete();
     } catch (error) {
-      discussionMessage.textContent = error.message;
+      setSystemMessage(discussionMessage, error.message, "error");
     } finally {
       submitButton.disabled = false;
     }
@@ -917,7 +954,28 @@ function renderReplyTree(thread, replies, attachments, container, onRefresh) {
         const saveButton = document.createElement("button");
         saveButton.type = "submit";
         saveButton.textContent = "儲存變更";
-        formActions.append(cancelButton, saveButton);
+        const deleteButton = document.createElement("button");
+        deleteButton.type = "button";
+        deleteButton.className = "delete-thread-button";
+        deleteButton.textContent = "刪除回覆";
+        deleteButton.addEventListener("click", async () => {
+          if (!window.confirm("確定刪除此回覆嗎？刪除後不會顯示在畫面上，但資料仍會保留。")) return;
+          deleteButton.disabled = true;
+          try {
+            const response = await fetch(`/api/threads/${encodeURIComponent(thread.id)}/replies/${encodeURIComponent(reply.id)}`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ deleted: true }),
+            });
+            await readJsonResponse(response);
+            await onRefresh();
+            setSystemMessage(discussionMessage, "回覆已刪除。資料仍會保留。");
+          } catch (error) {
+            setSystemMessage(discussionMessage, error.message, "error");
+            deleteButton.disabled = false;
+          }
+        });
+        formActions.append(deleteButton, cancelButton, saveButton);
         form.append(textarea, existingAttachments, fileControl.element, formActions);
         form.addEventListener("submit", async (event) => {
           event.preventDefault();
@@ -933,7 +991,7 @@ function renderReplyTree(thread, replies, attachments, container, onRefresh) {
             await uploadAttachments(thread.id, fileControl.picker.files, reply.id);
             await onRefresh();
           } catch (error) {
-            discussionMessage.textContent = error.message;
+            setSystemMessage(discussionMessage, error.message, "error");
             saveButton.disabled = false;
           }
         });
@@ -984,7 +1042,11 @@ function createThreadCard(thread) {
   const status = availableStatuses.find((item) => item.id === thread.statusId);
   const meta = document.createElement("span");
   meta.className = "thread-meta";
-  meta.textContent = `${thread.pinned ? "置頂 · " : ""}${status?.name ?? "無狀態"}`;
+  meta.textContent = [
+    status?.name ?? "無狀態",
+    ...(thread.bookmarked ? ["已加入書籤"] : []),
+    ...(thread.pinned ? ["置頂"] : []),
+  ].join(" · ");
   titleGroup.append(title, meta);
 
   const headerActions = document.createElement("div");
@@ -1035,7 +1097,7 @@ function createThreadCard(thread) {
     button.addEventListener("click", async () => {
       actionMenu.removeAttribute("open");
       button.disabled = true;
-      try { await action(); } catch (error) { discussionMessage.textContent = error.message; } finally { button.disabled = false; }
+      try { await action(); } catch (error) { setSystemMessage(discussionMessage, error.message, "error"); } finally { button.disabled = false; }
     });
     actionMenuList.append(button);
   };
@@ -1043,15 +1105,21 @@ function createThreadCard(thread) {
   let threadAttachments = [];
   let detailsReady;
   if (signedInUser.role === "admin" || signedInUser.id === thread.authorId) addMenuItem("編輯", "bi-pencil", () => openThreadEditor());
-  addMenuItem("加入書籤", "bi-bookmark", async () => {
+  const toggleBookmark = async () => {
     const response = await fetch(`/api/threads/${encodeURIComponent(thread.id)}/bookmark`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ bookmarked: true }),
+      body: JSON.stringify({ bookmarked: !thread.bookmarked }),
     });
     await readJsonResponse(response);
-    discussionMessage.textContent = "已加入個人書籤。";
-  });
+    setSystemMessage(discussionMessage, thread.bookmarked ? "已移除個人書籤。" : "已加入個人書籤。");
+    await loadThreads();
+  };
+  if (thread.bookmarked) {
+    addMenuItem("移除書籤", "bi-bookmark-fill", toggleBookmark);
+  } else {
+    addMenuItem("加入書籤", "bi-bookmark", toggleBookmark);
+  }
   if (signedInUser.role === "admin") {
     for (const [label, field, iconClass] of [
       [thread.pinned ? "取消置頂" : "置頂", "pinned", thread.pinned ? "bi-pin-angle-fill" : "bi-pin-angle"],
@@ -1143,7 +1211,29 @@ function createThreadCard(thread) {
     const saveButton = document.createElement("button");
     saveButton.type = "submit";
     saveButton.textContent = "儲存變更";
-    formActions.append(cancelButton, saveButton);
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.className = "delete-thread-button";
+    deleteButton.textContent = "刪除討論";
+    deleteButton.addEventListener("click", async () => {
+      if (!window.confirm("確定刪除此討論嗎？刪除後不會顯示在畫面上，但資料仍會保留。")) return;
+      deleteButton.disabled = true;
+      try {
+        const response = await fetch(`/api/threads/${encodeURIComponent(thread.id)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ deleted: true }),
+        });
+        await readJsonResponse(response);
+        await loadDashboard();
+        await loadThreads();
+        setSystemMessage(discussionMessage, "討論已刪除。資料仍會保留。");
+      } catch (error) {
+        setSystemMessage(discussionMessage, error.message, "error");
+        deleteButton.disabled = false;
+      }
+    });
+    formActions.append(deleteButton, cancelButton, saveButton);
     form.append(heading, titleField, statusField, contentField, existingAttachments, fileControl.element, formActions);
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
@@ -1160,9 +1250,9 @@ function createThreadCard(thread) {
         await uploadAttachments(thread.id, fileControl.picker.files);
         await loadDashboard();
         await loadThreads();
-        discussionMessage.textContent = "討論資料已更新。";
+        setSystemMessage(discussionMessage, "討論資料已更新。");
       } catch (error) {
-        discussionMessage.textContent = error.message;
+        setSystemMessage(discussionMessage, error.message, "error");
         saveButton.disabled = false;
       }
     });
@@ -1171,26 +1261,30 @@ function createThreadCard(thread) {
   }
 
   detailsReady = refreshDetails();
-  detailsReady.catch((error) => { discussionMessage.textContent = error.message; });
+  detailsReady.catch((error) => { setSystemMessage(discussionMessage, error.message, "error"); });
   return card;
 }
 
 async function loadThreads(sourceUrl = null, emptyMessage = "目前沒有符合條件的討論串。") {
   discussionMessage.textContent = "";
   const selectedSpaceId = threadSpaceFilter.value;
+  const selectedStatusId = threadStatusFilter.value;
   try {
     const url = sourceUrl ?? (selectedSpaceId ? `/api/threads?spaceId=${encodeURIComponent(selectedSpaceId)}` : "/api/threads");
     const response = await fetch(url, { headers: { Accept: "application/json" } });
     const payload = await readJsonResponse(response);
-    threadList.replaceChildren(...payload.threads.map(createThreadCard));
-    if (!payload.threads.length) {
+    const threads = selectedStatusId
+      ? payload.threads.filter((thread) => thread.statusId === selectedStatusId)
+      : payload.threads;
+    threadList.replaceChildren(...threads.map(createThreadCard));
+    if (!threads.length) {
       const empty = document.createElement("p");
       empty.className = "empty-state";
       empty.textContent = emptyMessage;
       threadList.append(empty);
     }
   } catch (error) {
-    discussionMessage.textContent = error.message;
+    setSystemMessage(discussionMessage, error.message, "error");
   }
 }
 
@@ -1224,7 +1318,7 @@ function showUser(user) {
     await loadDiscussion();
   };
   initialize().catch((error) => {
-    discussionMessage.textContent = error.message;
+    setSystemMessage(discussionMessage, error.message, "error");
   });
 }
 
@@ -1262,7 +1356,7 @@ async function loadRuntimeConfig() {
 }
 
 loadRuntimeConfig().catch((error) => {
-  loginMessage.textContent = error.message;
+  setSystemMessage(loginMessage, error.message, "error");
 });
 
 async function restoreSession() {
@@ -1318,7 +1412,7 @@ loginForm.addEventListener("submit", async (event) => {
     loginForm.reset();
     showUser(payload.user);
   } catch (error) {
-    loginMessage.textContent = error.message;
+    setSystemMessage(loginMessage, error.message, "error");
   }
 });
 
@@ -1354,9 +1448,9 @@ forgotPasswordForm.addEventListener("submit", async (event) => {
         body: JSON.stringify({ email, requestType: "PASSWORD_RESET" }),
       },
     );
-    forgotPasswordMessage.textContent = "若此 Email 已註冊，密碼重設信將寄至信箱。";
+    setSystemMessage(forgotPasswordMessage, "若此 Email 已註冊，密碼重設信將寄至信箱。");
   } catch (error) {
-    forgotPasswordMessage.textContent = error.message;
+    setSystemMessage(forgotPasswordMessage, error.message, "error");
   }
 });
 
@@ -1387,7 +1481,7 @@ spaceForm.addEventListener("submit", async (event) => {
     await loadSpaces();
     await loadThreads();
   } catch (error) {
-    spaceMessage.textContent = error.message;
+    setSystemMessage(spaceMessage, error.message, "error");
   }
 });
 
@@ -1407,7 +1501,7 @@ statusForm.addEventListener("submit", async (event) => {
     statusForm.reset();
     await loadStatuses();
   } catch (error) {
-    discussionMessage.textContent = error.message;
+    setSystemMessage(discussionMessage, error.message, "error");
   }
 });
 
@@ -1427,9 +1521,9 @@ statusEditForm.addEventListener("submit", async (event) => {
     statusEditDialog.close();
     await loadStatuses();
     await loadThreads();
-    discussionMessage.textContent = "討論狀態已更新。";
+    setSystemMessage(discussionMessage, "討論狀態已更新。");
   } catch (error) {
-    discussionMessage.textContent = error.message;
+    setSystemMessage(discussionMessage, error.message, "error");
   }
 });
 
@@ -1456,9 +1550,9 @@ threadForm.addEventListener("submit", async (event) => {
     threadForm.hidden = true;
     await loadDashboard();
     await loadThreads();
-    discussionMessage.textContent = "討論已建立。";
+    setSystemMessage(discussionMessage, "討論已建立。");
   } catch (error) {
-    discussionMessage.textContent = error.message;
+    setSystemMessage(discussionMessage, error.message, "error");
   } finally {
     submitButton.disabled = false;
   }
@@ -1483,7 +1577,7 @@ profileForm.addEventListener("submit", async (event) => {
   const passwordConfirmation = formData.get("passwordConfirmation");
 
   if (password !== passwordConfirmation) {
-    profileMessage.textContent = "兩次輸入的新密碼不一致。";
+    setSystemMessage(profileMessage, "兩次輸入的新密碼不一致。", "error");
     return;
   }
 
@@ -1508,16 +1602,17 @@ profileForm.addEventListener("submit", async (event) => {
     portalUserName.textContent = payload.user.displayName;
     profileForm.elements.password.value = "";
     profileForm.elements.passwordConfirmation.value = "";
-    profileMessage.textContent = "個人資料已更新。";
+    setSystemMessage(profileMessage, "個人資料已更新。");
     if (signedInUser.role === "admin") await loadUsers();
   } catch (error) {
-    profileMessage.textContent = error.message;
+    setSystemMessage(profileMessage, error.message, "error");
   } finally {
     submitButton.disabled = false;
   }
 });
 
 threadSpaceFilter.addEventListener("change", () => showWorkspaceThreads(threadSpaceFilter.value || null));
+threadStatusFilter.addEventListener("change", () => loadThreads());
 dashboardSpaceFilter.addEventListener("change", () => loadDashboard());
 portalAllSpaces.addEventListener("click", () => showWorkspaceThreads());
 
@@ -1562,7 +1657,6 @@ searchForm.addEventListener("submit", async (event) => {
   threadSpaceFilter.value = "";
   updateWorkspaceThreadNavigation(null, false);
   discussionTitle.textContent = "搜尋結果";
-  discussionDescription.textContent = `顯示「${query}」的搜尋結果。`;
   await loadThreads(`/api/search?q=${encodeURIComponent(query)}`);
 });
 
@@ -1573,11 +1667,9 @@ async function showBookmarks() {
   updateWorkspaceThreadNavigation(null, false);
   portalBookmarks.classList.add("is-active");
   discussionTitle.textContent = "我的書籤";
-  discussionDescription.textContent = "顯示已標示書籤的討論串。";
   await loadThreads("/api/bookmarks", "目前沒有已加入書籤的討論串。");
 }
 
-showBookmarksButton.addEventListener("click", showBookmarks);
 portalBookmarks.addEventListener("click", showBookmarks);
 
 restoreSession();

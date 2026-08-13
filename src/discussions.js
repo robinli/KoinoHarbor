@@ -109,6 +109,7 @@ export function createInMemoryDiscussionStore() {
 
       const thread = {
         archived: false,
+        deleted: false,
         authorId: actor.id,
         content: requiredText(input.content, "討論內容"),
         createdAt: now.toISOString(),
@@ -134,7 +135,7 @@ export function createInMemoryDiscussionStore() {
     listThreads(spaceIds) {
       const allowedSpaces = new Set(spaceIds);
       return [...threads.values()]
-        .filter((thread) => allowedSpaces.has(thread.spaceId))
+        .filter((thread) => allowedSpaces.has(thread.spaceId) && !thread.deleted)
         .sort((left, right) => Number(right.pinned) - Number(left.pinned) || right.updatedAt.localeCompare(left.updatedAt))
         .map(copy);
     },
@@ -181,6 +182,11 @@ export function createInMemoryDiscussionStore() {
         }
       }
 
+      if (changes.deleted !== undefined) {
+        if (typeof changes.deleted !== "boolean") throw validationError("deleted 必須是布林值。");
+        thread.deleted = changes.deleted;
+      }
+
       thread.updatedAt = now.toISOString();
       thread.updatedBy = actor.id;
       return copy(thread);
@@ -201,6 +207,7 @@ export function createInMemoryDiscussionStore() {
         content: requiredText(input.content, "回覆內容"),
         createdAt: now.toISOString(),
         createdBy: actor.id,
+        deleted: false,
         id: randomUUID(),
         parentReplyId,
         threadId,
@@ -217,6 +224,7 @@ export function createInMemoryDiscussionStore() {
         return null;
       }
       return [...replies.get(threadId).values()]
+        .filter((reply) => !reply.deleted)
         .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
         .map(copy);
     },
@@ -226,7 +234,7 @@ export function createInMemoryDiscussionStore() {
       return reply ? copy(reply) : null;
     },
 
-    updateReply(threadId, replyId, content, actor, _canModerate = false, now = new Date()) {
+    updateReply(threadId, replyId, changes, actor, _canModerate = false, now = new Date()) {
       const reply = replies.get(threadId)?.get(replyId);
       if (!reply) return null;
       if (actor.id !== reply.authorId) {
@@ -234,7 +242,12 @@ export function createInMemoryDiscussionStore() {
         error.statusCode = 403;
         throw error;
       }
-      reply.content = requiredText(content, "回覆內容");
+      const update = typeof changes === "string" ? { content: changes } : changes;
+      if (update.content !== undefined) reply.content = requiredText(update.content, "回覆內容");
+      if (update.deleted !== undefined) {
+        if (typeof update.deleted !== "boolean") throw validationError("deleted 必須是布林值。");
+        reply.deleted = update.deleted;
+      }
       reply.updatedAt = now.toISOString();
       reply.updatedBy = actor.id;
       return copy(reply);
@@ -256,7 +269,7 @@ export function createInMemoryDiscussionStore() {
       const allowedSpaces = new Set(allowedSpaceIds);
       return [...(bookmarks.get(userId)?.values() ?? [])]
         .map((bookmark) => threads.get(bookmark.threadId))
-        .filter((thread) => thread && allowedSpaces.has(thread.spaceId))
+        .filter((thread) => thread && !thread.deleted && allowedSpaces.has(thread.spaceId))
         .map(copy);
     },
 
@@ -266,7 +279,7 @@ export function createInMemoryDiscussionStore() {
       return [...threads.values()]
         .filter((thread) => allowedSpaces.has(thread.spaceId))
         .map((thread) => {
-          const threadReplies = [...replies.get(thread.id).values()];
+          const threadReplies = [...replies.get(thread.id).values()].filter((reply) => !reply.deleted);
           const haystack = [thread.title, thread.content, ...threadReplies.map((reply) => reply.content)]
             .join("\n")
             .toLocaleLowerCase("zh-Hant");

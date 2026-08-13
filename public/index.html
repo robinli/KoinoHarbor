@@ -125,11 +125,11 @@
 
             <section class="discussion-panel portal-view" id="discussion-panel" data-portal-view="discussions" aria-labelledby="discussion-title" hidden>
               <div class="portal-page-heading">
-                <div><p class="eyebrow">Threads</p><h2 id="discussion-title">全部討論</h2><p id="discussion-description">依工作區、狀態或關鍵字尋找工作討論。</p></div>
+                <div><h2 id="discussion-title">全部討論</h2></div>
                 <button type="button" data-open-thread-form>新增討論</button>
               </div>
               <form class="thread-form inline-thread-form" id="thread-form" hidden>
-                <div class="inline-form-heading"><div><p class="eyebrow">New thread</p><h3>新增討論</h3></div></div>
+                <div class="inline-form-heading"><div><h3>新增討論</h3></div></div>
                 <label>工作區<select name="spaceId" id="thread-space-select" required></select></label>
                 <label>標題<input name="title" required maxlength="120"></label>
                 <label>狀態<select name="statusId" id="thread-status-select"></select></label>
@@ -142,8 +142,8 @@
                 <label>工作區<select id="thread-space-filter"></select></label>
                 <form class="search-form" id="search-form">
                   <label>搜尋<input name="query" type="search" required placeholder="搜尋標題、內容或回覆"></label>
+                  <label>狀態<select id="thread-status-filter"></select></label>
                   <button type="submit">搜尋</button>
-                  <button type="button" id="show-bookmarks">我的書籤</button>
                 </form>
               </div>
               <p class="form-message" id="discussion-message" role="alert"></p>
@@ -152,13 +152,10 @@
 
             <section class="admin-panel portal-view" id="admin-panel" data-portal-view="admin" hidden>
               <div class="section-heading compact-heading">
-                <p class="eyebrow">Administration</p>
                 <h2>管理後台</h2>
-                <p>集中管理使用者角色與討論狀態。</p>
               </div>
               <section class="user-admin" id="user-admin" aria-labelledby="user-admin-title" hidden>
-                <nav class="admin-breadcrumb" aria-label="使用者管理路徑"><span>使用者管理</span><span aria-hidden="true">›</span><span>使用者與角色</span><span aria-hidden="true">›</span><span>新增使用者</span></nav>
-                <div class="section-heading compact-heading"><h3 id="user-admin-title">使用者與角色</h3><p>新增使用者，並管理名稱、密碼、角色及啟用狀態。</p></div>
+                <div class="section-heading compact-heading"><h3 id="user-admin-title">使用者與角色</h3></div>
                 <form class="user-create-form" id="user-create-form">
                   <label>顯示名稱<input name="displayName" required maxlength="80" autocomplete="off"></label>
                   <label>Email<input name="email" type="email" required autocomplete="off"></label>
@@ -170,7 +167,7 @@
                 <p class="form-message" id="user-admin-message" role="alert"></p>
               </section>
               <section class="status-admin" aria-labelledby="status-admin-title">
-                <div class="section-heading compact-heading"><h3 id="status-admin-title">討論狀態</h3><p>新增、改名、排序及停用討論狀態。</p></div>
+                <div class="section-heading compact-heading"><h3 id="status-admin-title">討論狀態</h3></div>
                 <form class="status-form" id="status-form" hidden>
                   <label>新狀態名稱<input name="name" required maxlength="40" placeholder="例如：處理中"></label>
                   <label>排序<input name="sortOrder" type="number" value="1" required></label>

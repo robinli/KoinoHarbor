@@ -183,7 +183,7 @@ textarea.form-control {
 }
 
 .btn:hover {
-  transform: translateY(-1px);
+  transform: none;
 }
 
 .btn-primary {
@@ -344,6 +344,11 @@ textarea.form-control {
 
 .portal-user:hover {
   background: rgb(255 255 255 / 8%);
+  transform: none;
+}
+
+.sidebar-brand #portal-admin-nav:hover {
+  transform: none;
 }
 
 .portal-user-edit {
@@ -365,7 +370,7 @@ textarea.form-control {
 
 .portal-nav {
   display: grid;
-  gap: 3px;
+  gap: 0;
   padding: 2px 0 14px;
 }
 
@@ -423,6 +428,11 @@ textarea.form-control {
   border-top: 0;
 }
 
+.portal-space-links > div {
+  display: grid;
+  gap: 0;
+}
+
 .portal-space-links > p {
   margin-bottom: 7px;
   padding: 0 10px;
@@ -468,7 +478,7 @@ textarea.form-control {
   max-width: none;
   min-height: 100%;
   margin: 0;
-  padding: clamp(26px, 3vw, 48px);
+  padding: clamp(14px, 1.5vw, 24px) clamp(26px, 3vw, 48px) clamp(26px, 3vw, 48px);
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -764,7 +774,7 @@ textarea.form-control {
 .thread-card {
   position: relative;
   padding: 20px;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .thread-card::before {
@@ -791,7 +801,10 @@ textarea.form-control {
 }
 
 .thread-title-group {
+  display: flex;
   min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
 }
 
 .thread-header-actions {
@@ -1234,12 +1247,56 @@ textarea.form-control {
 }
 
 .form-message:not(:empty) {
+  display: flex;
+  gap: 12px;
+  align-items: center;
   margin: 10px 0;
   padding: 10px 12px;
+  border-radius: 9px;
+}
+
+.form-message.is-success {
+  color: var(--kh-purple-dark);
+  border: 1px solid color-mix(in srgb, var(--kh-purple) 35%, white);
+  background: var(--kh-purple-soft);
+}
+
+.form-message.is-error {
   color: var(--kh-danger);
   border: 1px solid #f2c8c4;
-  border-radius: 9px;
   background: #fff3f2;
+}
+
+.system-message-close {
+  width: 26px;
+  min-height: 26px;
+  margin-left: auto;
+  padding: 0;
+  color: currentcolor;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  font-size: 1.25rem;
+  line-height: 1;
+}
+
+.system-message-close:hover {
+  background: rgb(0 0 0 / 7%);
+  transform: none;
+}
+
+.delete-thread-button {
+  margin-right: auto;
+  color: var(--kh-danger);
+  border-color: #f2c8c4;
+  background: #fff3f2;
+}
+
+.delete-thread-button:hover {
+  color: #fff;
+  border-color: var(--kh-danger);
+  background: var(--kh-danger);
+  transform: none;
 }
 
 .empty-state {
@@ -1353,7 +1410,7 @@ textarea.form-control {
   .admin-panel,
   .spaces-panel,
   .discussion-panel {
-    padding: 22px 16px 40px;
+    padding: 16px 16px 40px;
   }
 
   .portal-page-heading {
