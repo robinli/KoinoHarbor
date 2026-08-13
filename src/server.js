@@ -24,6 +24,7 @@ import {
 const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
 const defaultPublicDirectory = path.resolve(moduleDirectory, "..", "public");
 const bootstrapDirectory = path.resolve(moduleDirectory, "..", "node_modules", "bootstrap", "dist", "css");
+const bootstrapIconsDirectory = path.resolve(moduleDirectory, "..", "node_modules", "bootstrap-icons", "font");
 
 const contentTypes = new Map([
   [".css", "text/css; charset=utf-8"],
@@ -33,6 +34,8 @@ const contentTypes = new Map([
   [".json", "application/json; charset=utf-8"],
   [".png", "image/png"],
   [".svg", "image/svg+xml"],
+  [".woff", "font/woff"],
+  [".woff2", "font/woff2"],
 ]);
 
 function sendJson(response, statusCode, payload) {
@@ -820,6 +823,23 @@ export function createApplicationServer(options = {}) {
         request.method === "GET"
         && requestUrl.pathname === "/vendor/bootstrap.min.css"
         && await serveStaticFile(response, bootstrapDirectory, "/bootstrap.min.css")
+      ) {
+        return;
+      }
+
+      if (
+        request.method === "GET"
+        && requestUrl.pathname === "/vendor/bootstrap-icons.css"
+        && await serveStaticFile(response, bootstrapIconsDirectory, "/bootstrap-icons.css")
+      ) {
+        return;
+      }
+
+      const bootstrapIconFontMatch = requestUrl.pathname.match(/^\/vendor\/fonts\/(bootstrap-icons\.woff2?)$/);
+      if (
+        request.method === "GET"
+        && bootstrapIconFontMatch
+        && await serveStaticFile(response, bootstrapIconsDirectory, `/fonts/${bootstrapIconFontMatch[1]}`)
       ) {
         return;
       }

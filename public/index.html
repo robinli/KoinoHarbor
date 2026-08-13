@@ -5,7 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="description" content="Koino Harbor 企業內部溝通平台 POC">
     <title>Koino Harbor</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="/vendor/bootstrap.min.css">
+    <link rel="stylesheet" href="/vendor/bootstrap-icons.css">
     <link rel="stylesheet" href="/styles.css">
     <link rel="stylesheet" href="/modern.css">
     <script src="/app.js" type="module"></script>
@@ -47,7 +49,7 @@
             <div class="sidebar-brand">
               <span class="sidebar-brand-mark" aria-hidden="true">⚓</span>
               <strong>Koino Harbor</strong>
-              <button id="portal-admin-nav" type="button" data-portal-target="admin" aria-label="前往後台管理" title="後台管理" hidden>⚙️</button>
+              <button id="portal-admin-nav" type="button" data-portal-target="admin" aria-label="前往後台管理" title="後台管理" hidden><i class="bi bi-gear-fill" aria-hidden="true"></i></button>
             </div>
             <button class="portal-user" id="portal-profile-button" type="button" aria-haspopup="dialog">
               <span class="portal-avatar" aria-hidden="true">KH</span>
@@ -55,18 +57,18 @@
                 <small>登入者 · <span id="portal-user-role"></span></small>
                 <strong id="portal-user-name"></strong>
               </span>
-              <span class="portal-user-edit" aria-hidden="true">✎</span>
+              <i class="portal-user-edit bi bi-pencil" aria-hidden="true"></i>
             </button>
             <nav class="portal-nav">
-              <button class="is-active" type="button" id="portal-all-spaces">全部工作區</button>
+              <button class="is-active" type="button" id="portal-all-spaces"><i class="sidebar-icon bi bi-grid-3x3-gap-fill" aria-hidden="true"></i><span>全部工作區</span></button>
             </nav>
             <div class="portal-space-links" aria-label="已授權工作區">
               <div id="portal-space-list"></div>
             </div>
             <nav class="portal-nav portal-nav-secondary">
-              <button type="button" id="portal-bookmarks">我的書籤</button>
+              <button type="button" id="portal-bookmarks"><i class="sidebar-icon bi bi-bookmark-fill" aria-hidden="true"></i><span>我的書籤</span></button>
             </nav>
-            <button class="portal-logout" id="portal-logout-button" type="button">登出</button>
+            <button class="portal-logout" id="portal-logout-button" type="button"><i class="sidebar-icon bi bi-box-arrow-right" aria-hidden="true"></i><span>登出</span></button>
           </aside>
 
           <div class="portal-main">

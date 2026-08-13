@@ -648,12 +648,28 @@ test("GET / serves the application shell", async (context) => {
   assert.match(response.headers.get("content-type"), /text\/html/);
   assert.match(body, /Koino Harbor/);
   assert.match(body, /\/vendor\/bootstrap\.min\.css/);
+  assert.match(body, /\/vendor\/bootstrap-icons\.css/);
   assert.match(body, /\/modern\.css/);
+  assert.match(body, /\/favicon\.svg/);
 
   const bootstrapResponse = await fetch(`${testServer.baseUrl}/vendor/bootstrap.min.css`);
   assert.equal(bootstrapResponse.status, 200);
   assert.match(bootstrapResponse.headers.get("content-type"), /text\/css/);
   assert.match(await bootstrapResponse.text(), /Bootstrap\s+v5\.3\.8/);
+
+  const bootstrapIconsResponse = await fetch(`${testServer.baseUrl}/vendor/bootstrap-icons.css`);
+  assert.equal(bootstrapIconsResponse.status, 200);
+  assert.match(bootstrapIconsResponse.headers.get("content-type"), /text\/css/);
+  assert.match(await bootstrapIconsResponse.text(), /Bootstrap Icons v1\.13\.1/);
+
+  const bootstrapIconsFontResponse = await fetch(`${testServer.baseUrl}/vendor/fonts/bootstrap-icons.woff2`);
+  assert.equal(bootstrapIconsFontResponse.status, 200);
+  assert.match(bootstrapIconsFontResponse.headers.get("content-type"), /font\/woff2/);
+
+  const faviconResponse = await fetch(`${testServer.baseUrl}/favicon.svg`);
+  assert.equal(faviconResponse.status, 200);
+  assert.match(faviconResponse.headers.get("content-type"), /image\/svg\+xml/);
+  assert.match(await faviconResponse.text(), /⚓/);
 });
 
 test("unknown paths return a JSON 404", async (context) => {
