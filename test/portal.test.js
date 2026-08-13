@@ -24,14 +24,16 @@ test("portal shell exposes the ordered account, Space, bookmark and admin entry 
     'id="profile-dialog"',
     'id="portal-profile-button"',
     'id="portal-all-spaces"',
+    'href="/favicon.svg"',
+    'href="/vendor/bootstrap-icons.css"',
   ]) {
     assert.match(html, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }
 
   assert.doesNotMatch(html, /class="primary-action"[^>]*data-open-thread-dialog/);
-  assert.match(html, /id="portal-admin-nav"[^>]*data-portal-target="admin"[^>]*hidden[^>]*>⚙️<\/button>/);
+  assert.match(html, /id="portal-admin-nav"[^>]*data-portal-target="admin"[^>]*hidden[^>]*>[\s\S]*?bi-gear-fill[\s\S]*?<\/button>/);
   assert.match(html, /id="portal-profile-button"[\s\S]*?登入者[\s\S]*?id="portal-user-name"/);
-  assert.match(html, /id="portal-all-spaces"[^>]*>全部工作區<\/button>/);
+  assert.match(html, /id="portal-all-spaces"[^>]*>[\s\S]*?bi-grid-3x3-gap-fill[\s\S]*?全部工作區[\s\S]*?<\/button>/);
   assert.doesNotMatch(html, /id="portal-all-spaces"[^>]*data-portal-target="spaces"/);
   assert.match(html, /class="sidebar-brand"[\s\S]*?id="portal-profile-button"[\s\S]*?id="portal-all-spaces"[\s\S]*?id="portal-space-list"[\s\S]*?id="portal-bookmarks"[\s\S]*?id="portal-logout-button"/);
   assert.match(html, />工作區管理<\/button>/);
@@ -55,6 +57,7 @@ test("portal client aggregates accessible threads and disables creation without 
   assert.match(script, /async function showWorkspaceThreads\(spaceId = null\)/);
   assert.match(script, /threadSpaceFilter\.value = selectedThreadSpaceId \?\? ""/);
   assert.match(script, /button\.dataset\.spaceId = space\.id/);
+  assert.match(script, /prefix\.textContent = "#"/);
   assert.match(script, /button\.addEventListener\("click", \(\) => showWorkspaceThreads\(space\.id\)\)/);
   assert.match(script, /portalAllSpaces\.addEventListener\("click", \(\) => showWorkspaceThreads\(\)\)/);
   assert.match(script, /loadThreads\("\/api\/bookmarks", "目前沒有已加入書籤的討論串。"\)/);
@@ -68,6 +71,16 @@ test("portal client aggregates accessible threads and disables creation without 
   assert.match(script, /requestType: "PASSWORD_RESET"/);
   assert.match(script, /method: "DELETE"/);
   assert.match(script, /className = "delete-status-button"/);
+  assert.match(script, /className = "thread-header-actions"/);
+  assert.match(script, /replyAction\.addEventListener\("click", \(\) => replyInput\.focus\(\)\)/);
+  assert.match(script, /className = "thread-action-menu"/);
+  assert.match(script, /actionMenuToggle\.setAttribute\("aria-haspopup", "menu"\)/);
+  assert.match(script, /actionMenuToggle\.setAttribute\("aria-expanded", String\(actionMenu\.open\)\)/);
+  assert.match(script, /addMenuItem\("編輯", "bi-pencil"/);
+  assert.match(script, /addMenuItem\("加入書籤", "bi-bookmark"/);
+  assert.match(script, /thread\.pinned \? "取消置頂" : "置頂"/);
+  assert.match(script, /thread\.archived \? "取消封存" : "封存"/);
+  assert.doesNotMatch(script, /actions\.className = "thread-actions"/);
 });
 
 test("portal styles preserve hidden state, keyboard focus and mobile single-column layout", async () => {
@@ -81,6 +94,9 @@ test("portal styles preserve hidden state, keyboard focus and mobile single-colu
   assert.match(modernStyles, /\.portal-shell\s*\{[^}]*width:\s*100vw[^}]*height:\s*100vh/s);
   assert.match(modernStyles, /\.portal-active main\s*\{[^}]*width:\s*100%[^}]*margin:\s*0/s);
   assert.match(modernStyles, /@media \(max-width: 720px\)[\s\S]*\.portal-shell\s*\{[^}]*grid-template-columns:\s*1fr/s);
+  assert.doesNotMatch(modernStyles, /├─|└─|🔖|↪|▦/);
+  assert.match(modernStyles, /\.thread-header-actions\s*\{/);
+  assert.match(modernStyles, /\.thread-menu-list\s*\{[^}]*position:\s*absolute/s);
 });
 
 test("Firebase portal reads avoid unnecessary composite-index dependencies at POC scale", async () => {

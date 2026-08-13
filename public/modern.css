@@ -384,20 +384,23 @@ textarea.form-control {
   text-align: left;
 }
 
-.portal-nav button::before,
-.portal-space-links button::before,
-.portal-sidebar .portal-logout::before {
+.sidebar-icon,
+.workspace-prefix {
   width: 1.25rem;
   flex: 0 0 auto;
   font-size: 0.96rem;
   text-align: center;
 }
 
-.portal-nav #portal-all-spaces::before { content: "▦"; }
-.portal-nav #portal-bookmarks::before { content: "🔖"; }
-.portal-space-links button::before { width: 2rem; content: "├─"; color: rgb(255 255 255 / 42%); }
-.portal-space-links button:last-child::before { content: "└─"; }
-.portal-sidebar .portal-logout::before { content: "↪"; }
+.workspace-prefix {
+  width: 1.25rem;
+  color: rgb(255 255 255 / 52%);
+  font-weight: 800;
+}
+
+.portal-space-links button.is-active .workspace-prefix {
+  color: var(--kh-purple-dark);
+}
 
 .portal-nav button:hover,
 .portal-space-links button:hover,
@@ -750,19 +753,115 @@ textarea.form-control {
   font-size: 1.08rem;
 }
 
+.thread-card-header {
+  align-items: flex-start;
+}
+
+.thread-title-group {
+  min-width: 0;
+}
+
+.thread-header-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 2px;
+  align-items: center;
+  margin: -8px -8px 0 12px;
+  padding: 3px;
+  border: 1px solid var(--kh-line);
+  border-radius: 10px;
+  background: var(--kh-surface);
+  box-shadow: 0 3px 10px rgb(29 28 29 / 8%);
+}
+
+.thread-header-button.btn,
+.thread-menu-toggle.btn {
+  display: inline-flex;
+  min-height: 32px;
+  gap: 6px;
+  align-items: center;
+  justify-content: center;
+  padding: 5px 8px;
+  color: #514f53;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+}
+
+.thread-action-separator {
+  width: 1px;
+  height: 20px;
+  background: var(--kh-line);
+}
+
+.thread-action-menu {
+  position: relative;
+}
+
+.thread-action-menu > summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+.thread-action-menu > summary::-webkit-details-marker {
+  display: none;
+}
+
+.thread-action-menu[open] > .thread-menu-toggle {
+  color: var(--kh-purple-dark);
+  background: var(--kh-purple-soft);
+}
+
+.thread-menu-list {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 7px);
+  right: -4px;
+  display: grid;
+  min-width: 190px;
+  gap: 2px;
+  padding: 6px;
+  border: 1px solid var(--kh-line);
+  border-radius: 10px;
+  background: var(--kh-surface);
+  box-shadow: 0 10px 28px rgb(29 28 29 / 16%);
+}
+
+.thread-action-menu:not([open]) > .thread-menu-list {
+  display: none;
+}
+
+.thread-menu-item.btn {
+  width: 100%;
+  min-height: 36px;
+  gap: 10px;
+  justify-content: flex-start;
+  padding: 7px 10px;
+  color: #514f53;
+  border: 0;
+  background: transparent;
+  text-align: left;
+}
+
+.thread-header-button.btn:hover,
+.thread-menu-toggle.btn:hover,
+.thread-menu-item.btn:hover {
+  color: var(--kh-purple-dark);
+  background: var(--kh-surface-soft);
+}
+
+.thread-menu-item .bi {
+  width: 1rem;
+  flex: 0 0 auto;
+  text-align: center;
+}
+
 .thread-body {
   max-width: 90ch;
   color: #514f53;
   line-height: 1.7;
 }
 
-.thread-actions {
-  gap: 6px;
-  padding-top: 10px;
-  border-top: 1px solid var(--kh-line);
-}
-
-.thread-actions .btn,
 .attachment-form .btn,
 .reply-form .btn {
   min-height: 36px;
@@ -997,7 +1096,8 @@ textarea.form-control {
     font-size: 0.8rem;
   }
 
-  .portal-nav button::before {
+  .sidebar-icon,
+  .workspace-prefix {
     width: auto;
   }
 
@@ -1065,6 +1165,18 @@ textarea.form-control {
     grid-column: 1;
     grid-row: auto;
     justify-self: start;
+  }
+
+  .thread-card-header {
+    gap: 10px;
+  }
+
+  .thread-header-actions {
+    margin-right: -4px;
+  }
+
+  .thread-header-button span:not(.visually-hidden) {
+    display: none;
   }
 
   .auth-card {

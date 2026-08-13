@@ -106,6 +106,20 @@ const bootstrapObserver = new MutationObserver((mutations) => {
 });
 bootstrapObserver.observe(document.body, { childList: true, subtree: true });
 
+document.addEventListener("click", (event) => {
+  for (const menu of document.querySelectorAll(".thread-action-menu[open]")) {
+    if (!menu.contains(event.target)) menu.removeAttribute("open");
+  }
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") return;
+  const menu = document.querySelector(".thread-action-menu[open]");
+  if (!menu) return;
+  menu.removeAttribute("open");
+  menu.querySelector("summary")?.focus();
+});
+
 function resetPortalData() {
   availableUsers = [];
   availableSpaces = [];
@@ -538,7 +552,13 @@ async function loadSpaces() {
     portalSpaceList.replaceChildren(...activeSpaces.map((space) => {
       const button = document.createElement("button");
       button.type = "button";
-      button.textContent = space.name;
+      const prefix = document.createElement("span");
+      prefix.className = "workspace-prefix";
+      prefix.setAttribute("aria-hidden", "true");
+      prefix.textContent = "#";
+      const label = document.createElement("span");
+      label.textContent = space.name;
+      button.append(prefix, label);
       button.dataset.spaceId = space.id;
       button.addEventListener("click", () => showWorkspaceThreads(space.id));
       return button;
@@ -677,23 +697,92 @@ function createThreadCard(thread) {
   card.className = `thread-card${thread.pinned ? " is-pinned" : ""}${thread.archived ? " is-archived" : ""}`;
   const header = document.createElement("div");
   header.className = "thread-card-header";
+  const titleGroup = document.createElement("div");
+  titleGroup.className = "thread-title-group";
   const title = document.createElement("h3");
   title.textContent = thread.title;
   const status = availableStatuses.find((item) => item.id === thread.statusId);
   const meta = document.createElement("span");
   meta.className = "thread-meta";
   meta.textContent = `${thread.pinned ? "置頂 · " : ""}${status?.name ?? "無狀態"}`;
-  header.append(title, meta);
-  const body = document.createElement("p");
-  body.className = "thread-body";
-  body.textContent = thread.content;
-  const actions = document.createElement("div");
-  actions.className = "thread-actions";
-  const bookmarkButton = document.createElement("button");
-  bookmarkButton.type = "button";
-  bookmarkButton.className = "subtle-button";
-  bookmarkButton.textContent = "加入書籤";
-  bookmarkButton.addEventListener("click", async () => {
+  titleGroup.append(title, meta);
+
+  const headerActions = document.createElement("div");
+  headerActions.className = "thread-header-actions";
+  headerActions.setAttribute("role", "toolbar");
+  headerActions.setAttribute("aria-label", `${thread.title} 的討論操作`);
+  const replyAction = document.createElement("button");
+  replyAction.type = "button";
+  replyAction.className = "thread-header-button btn btn-quiet";
+  replyAction.setAttribute("aria-label", `回覆「${thread.title}」`);
+  const replyIcon = document.createElement("i");
+  replyIcon.className = "bi bi-chat-left-text";
+  replyIcon.setAttribute("aria-hidden", "true");
+  const replyLabel = document.createElement("span");
+  replyLabel.textContent = "回覆";
+  replyAction.append(replyIcon, replyLabel);
+  replyAction.addEventListener("click", () => replyInput.focus());
+
+  const actionSeparator = document.createElement("span");
+  actionSeparator.className = "thread-action-separator";
+  actionSeparator.setAttribute("aria-hidden", "true");
+
+  const actionMenu = document.createElement("details");
+  actionMenu.className = "thread-action-menu";
+  const actionMenuToggle = document.createElement("summary");
+  actionMenuToggle.className = "thread-menu-toggle btn btn-quiet";
+  actionMenuToggle.setAttribute("role", "button");
+  actionMenuToggle.setAttribute("aria-haspopup", "menu");
+  actionMenuToggle.setAttribute("aria-expanded", "false");
+  actionMenuToggle.setAttribute("aria-label", `開啟「${thread.title}」的更多操作`);
+  actionMenuToggle.setAttribute("title", "更多操作");
+  const moreIcon = document.createElement("i");
+  moreIcon.className = "bi bi-three-dots";
+  moreIcon.setAttribute("aria-hidden", "true");
+  const moreLabel = document.createElement("span");
+  moreLabel.className = "visually-hidden";
+  moreLabel.textContent = "更多操作";
+  actionMenuToggle.append(moreIcon, moreLabel);
+
+  const actionMenuList = document.createElement("div");
+  actionMenuList.className = "thread-menu-list";
+  actionMenuList.setAttribute("role", "menu");
+  const addMenuItem = (label, iconClass, action) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "thread-menu-item btn btn-quiet";
+    button.setAttribute("role", "menuitem");
+    const icon = document.createElement("i");
+    icon.className = `bi ${iconClass}`;
+    icon.setAttribute("aria-hidden", "true");
+    const text = document.createElement("span");
+    text.textContent = label;
+    button.append(icon, text);
+    button.addEventListener("click", async () => {
+      actionMenu.removeAttribute("open");
+      button.disabled = true;
+      try {
+        await action();
+      } catch (error) {
+        discussionMessage.textContent = error.message;
+      } finally {
+        button.disabled = false;
+      }
+    });
+    actionMenuList.append(button);
+  };
+
+  if (signedInUser.role === "admin" || signedInUser.id === thread.authorId) {
+    addMenuItem("編輯", "bi-pencil", () => {
+      threadEditForm.elements.threadId.value = thread.id;
+      threadEditForm.elements.title.value = thread.title;
+      threadEditForm.elements.content.value = thread.content;
+      threadEditForm.elements.statusId.value = thread.statusId || "";
+      threadEditDialog.showModal();
+    });
+  }
+
+  addMenuItem("加入書籤", "bi-bookmark", async () => {
     const response = await fetch(`/api/threads/${encodeURIComponent(thread.id)}/bookmark`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -702,30 +791,13 @@ function createThreadCard(thread) {
     await readJsonResponse(response);
     discussionMessage.textContent = "已加入個人書籤。";
   });
-  actions.append(bookmarkButton);
-
-  if (signedInUser.role === "admin" || signedInUser.id === thread.authorId) {
-    const editButton = document.createElement("button");
-    editButton.type = "button";
-    editButton.className = "subtle-button";
-    editButton.textContent = "編輯討論";
-    editButton.addEventListener("click", () => {
-      threadEditForm.elements.threadId.value = thread.id;
-      threadEditForm.elements.title.value = thread.title;
-      threadEditForm.elements.content.value = thread.content;
-      threadEditForm.elements.statusId.value = thread.statusId || "";
-      threadEditDialog.showModal();
-    });
-    actions.append(editButton);
-  }
 
   if (signedInUser.role === "admin") {
-    for (const [label, field] of [[thread.pinned ? "取消置頂" : "置頂", "pinned"], [thread.archived ? "取消封存" : "封存", "archived"]]) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "subtle-button";
-      button.textContent = label;
-      button.addEventListener("click", async () => {
+    for (const [label, field, iconClass] of [
+      [thread.pinned ? "取消置頂" : "置頂", "pinned", thread.pinned ? "bi-pin-angle-fill" : "bi-pin-angle"],
+      [thread.archived ? "取消封存" : "封存", "archived", "bi-archive"],
+    ]) {
+      addMenuItem(label, iconClass, async () => {
         const response = await fetch(`/api/threads/${encodeURIComponent(thread.id)}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
@@ -734,9 +806,18 @@ function createThreadCard(thread) {
         await readJsonResponse(response);
         await loadThreads();
       });
-      actions.append(button);
     }
   }
+
+  actionMenu.append(actionMenuToggle, actionMenuList);
+  actionMenu.addEventListener("toggle", () => {
+    actionMenuToggle.setAttribute("aria-expanded", String(actionMenu.open));
+  });
+  headerActions.append(replyAction, actionSeparator, actionMenu);
+  header.append(titleGroup, headerActions);
+  const body = document.createElement("p");
+  body.className = "thread-body";
+  body.textContent = thread.content;
 
   const replyList = document.createElement("ul");
   replyList.className = "reply-list";
@@ -798,7 +879,7 @@ function createThreadCard(thread) {
     }
   });
 
-  card.append(header, body, actions, replyList, replyForm, attachmentList, attachmentForm);
+  card.append(header, body, replyList, replyForm, attachmentList, attachmentForm);
   loadThreadDetails(thread.id, replyList).catch((error) => {
     discussionMessage.textContent = error.message;
   });

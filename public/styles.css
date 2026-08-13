@@ -718,7 +718,6 @@ th {
 }
 
 .thread-card-header,
-.thread-actions,
 .attachment-row {
   display: flex;
   gap: 8px;
@@ -739,11 +738,6 @@ th {
   margin: 14px 0;
   color: var(--muted);
   white-space: pre-wrap;
-}
-
-.thread-actions {
-  justify-content: flex-start;
-  flex-wrap: wrap;
 }
 
 .thread-card .subtle-button {
