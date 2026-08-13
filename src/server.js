@@ -210,6 +210,14 @@ export function createApplicationServer(options = {}) {
     return threads.map((thread) => ({ ...thread, bookmarked: bookmarkedIds.has(thread.id) }));
   }
 
+  async function withAuthorDisplayNames(messages) {
+    const authors = await Promise.all(messages.map((message) => authService.getUser(message.authorId)));
+    return messages.map((message, index) => ({
+      ...message,
+      authorDisplayName: authors[index]?.displayName ?? "Unknown user",
+    }));
+  }
+
   return http.createServer(async (request, response) => {
     try {
       const requestUrl = new URL(request.url ?? "/", "http://localhost");
@@ -606,11 +614,11 @@ export function createApplicationServer(options = {}) {
           return;
         }
         sendJson(response, 200, {
-          threads: await markBookmarkedThreads(
+          threads: await withAuthorDisplayNames(await markBookmarkedThreads(
             await discussionStore.listThreads(requestedSpaceId ? [requestedSpaceId] : allowedSpaceIds),
             currentUser,
             allowedSpaceIds,
-          ),
+          )),
         });
         return;
       }
@@ -642,8 +650,8 @@ export function createApplicationServer(options = {}) {
           return;
         }
         sendJson(response, 200, {
-          replies: await discussionStore.listReplies(thread.id),
-          thread,
+          replies: await withAuthorDisplayNames(await discussionStore.listReplies(thread.id)),
+          thread: (await withAuthorDisplayNames([thread]))[0],
         });
         return;
       }
@@ -750,8 +758,8 @@ export function createApplicationServer(options = {}) {
         if (!currentUser) return;
         const allowedSpaceIds = await accessibleSpaceIds(currentUser);
         sendJson(response, 200, {
-          threads: (await discussionStore.listBookmarks(currentUser.id, allowedSpaceIds))
-            .map((thread) => ({ ...thread, bookmarked: true })),
+          threads: await withAuthorDisplayNames((await discussionStore.listBookmarks(currentUser.id, allowedSpaceIds))
+            .map((thread) => ({ ...thread, bookmarked: true }))),
         });
         return;
       }
@@ -763,7 +771,7 @@ export function createApplicationServer(options = {}) {
         const allowedSpaceIds = await accessibleSpaceIds(currentUser);
         sendJson(response, 200, {
           query,
-          threads: await markBookmarkedThreads(await discussionStore.search(query, allowedSpaceIds), currentUser, allowedSpaceIds),
+          threads: await withAuthorDisplayNames(await markBookmarkedThreads(await discussionStore.search(query, allowedSpaceIds), currentUser, allowedSpaceIds)),
         });
         return;
       }

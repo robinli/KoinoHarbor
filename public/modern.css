@@ -796,6 +796,29 @@ textarea.form-control {
   font-size: 1.08rem;
 }
 
+.thread-title-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.message-author-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--kh-muted);
+  font-size: 0.75rem;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.message-edited {
+  color: var(--kh-muted);
+  font-style: italic;
+  font-weight: 500;
+}
+
 .thread-card-header {
   align-items: flex-start;
 }
@@ -1081,6 +1104,10 @@ textarea.form-control {
   margin: 0;
   color: #3f3d40;
   white-space: pre-wrap;
+}
+
+.reply-message .message-author-meta {
+  grid-column: 1;
 }
 
 .reply-attachment-list {
