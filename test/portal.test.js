@@ -63,7 +63,9 @@ test("portal client aggregates accessible threads and disables creation without 
   assert.match(script, /prefix\.textContent = "#"/);
   assert.match(script, /button\.addEventListener\("click", \(\) => showWorkspaceThreads\(space\.id\)\)/);
   assert.match(script, /portalAllSpaces\.addEventListener\("click", \(\) => showWorkspaceThreads\(\)\)/);
-  assert.match(script, /loadThreads\("\/api\/bookmarks", "目前沒有已加入書籤的討論串。"\)/);
+  assert.match(script, /setThreadSource\("\/api\/bookmarks", "目前沒有已加入書籤的討論串。"\)/);
+  assert.match(script, /function setThreadSource\(sourceUrl = null, emptyMessage = "目前沒有符合條件的討論串。"\)/);
+  assert.match(script, /const url = threadSourceUrl \?\? \(selectedSpaceId \? `\/api\/threads\?spaceId=\$\{encodeURIComponent\(selectedSpaceId\)\}` : "\/api\/threads"\)/);
   assert.match(script, /spaceId: formData\.get\("spaceId"\)/);
   assert.match(script, /function resetPortalData\(\)/);
   assert.match(script, /function showUser\(user\) \{\s*resetPortalData\(\)/);

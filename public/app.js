@@ -55,6 +55,8 @@ let signedInUser = null;
 let runtimeConfig = null;
 let selectedSidebarSpaceId = null;
 let selectedThreadSpaceId = null;
+let threadSourceUrl = null;
+let threadEmptyMessage = "目前沒有符合條件的討論串。";
 const messageTimers = new WeakMap();
 
 function setSystemMessage(messageElement, message, type = "success") {
@@ -160,6 +162,8 @@ function resetPortalData() {
   threadForm.hidden = true;
   selectedSidebarSpaceId = null;
   selectedThreadSpaceId = null;
+  threadSourceUrl = null;
+  threadEmptyMessage = "目前沒有符合條件的討論串。";
 }
 
 function showPortalView(viewName) {
@@ -250,6 +254,7 @@ async function showWorkspaceThreads(spaceId = null) {
   threadSpaceFilter.value = selectedThreadSpaceId ?? "";
   updateDiscussionHeading(selectedSpace);
   updateWorkspaceThreadNavigation(selectedThreadSpaceId);
+  setThreadSource();
   await loadThreads();
 }
 
@@ -1328,12 +1333,17 @@ function createThreadCard(thread) {
   return card;
 }
 
-async function loadThreads(sourceUrl = null, emptyMessage = "目前沒有符合條件的討論串。") {
+function setThreadSource(sourceUrl = null, emptyMessage = "目前沒有符合條件的討論串。") {
+  threadSourceUrl = sourceUrl;
+  threadEmptyMessage = emptyMessage;
+}
+
+async function loadThreads() {
   discussionMessage.textContent = "";
   const selectedSpaceId = threadSpaceFilter.value;
   const selectedStatusId = threadStatusFilter.value;
   try {
-    const url = sourceUrl ?? (selectedSpaceId ? `/api/threads?spaceId=${encodeURIComponent(selectedSpaceId)}` : "/api/threads");
+    const url = threadSourceUrl ?? (selectedSpaceId ? `/api/threads?spaceId=${encodeURIComponent(selectedSpaceId)}` : "/api/threads");
     const response = await fetch(url, { headers: { Accept: "application/json" } });
     const payload = await readJsonResponse(response);
     const threads = selectedStatusId
@@ -1343,7 +1353,7 @@ async function loadThreads(sourceUrl = null, emptyMessage = "目前沒有符合�
     if (!threads.length) {
       const empty = document.createElement("p");
       empty.className = "empty-state";
-      empty.textContent = emptyMessage;
+      empty.textContent = threadEmptyMessage;
       threadList.append(empty);
     }
   } catch (error) {
@@ -1720,7 +1730,8 @@ searchForm.addEventListener("submit", async (event) => {
   threadSpaceFilter.value = "";
   updateWorkspaceThreadNavigation(null, false);
   discussionTitle.textContent = "搜尋結果";
-  await loadThreads(`/api/search?q=${encodeURIComponent(query)}`);
+  setThreadSource(`/api/search?q=${encodeURIComponent(query)}`);
+  await loadThreads();
 });
 
 async function showBookmarks() {
@@ -1730,7 +1741,8 @@ async function showBookmarks() {
   updateWorkspaceThreadNavigation(null, false);
   portalBookmarks.classList.add("is-active");
   discussionTitle.textContent = "我的書籤";
-  await loadThreads("/api/bookmarks", "目前沒有已加入書籤的討論串。");
+  setThreadSource("/api/bookmarks", "目前沒有已加入書籤的討論串。");
+  await loadThreads();
 }
 
 portalBookmarks.addEventListener("click", showBookmarks);
