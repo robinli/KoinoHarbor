@@ -533,6 +533,50 @@ textarea.form-control {
   background: var(--kh-purple-dark);
 }
 
+.space-item-actions,
+.space-edit-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.edit-space-button {
+  color: var(--kh-purple-dark);
+  border-color: var(--kh-line);
+  background: var(--kh-surface);
+}
+
+.space-edit-form {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) 150px minmax(180px, 1.4fr) auto;
+  gap: 10px;
+  align-items: end;
+  margin: 16px 0;
+  padding: 14px;
+  border: 1px solid var(--kh-line);
+  border-radius: 10px;
+  background: var(--kh-purple-soft);
+}
+
+.space-edit-form label {
+  display: grid;
+  gap: 6px;
+  color: var(--kh-muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.space-edit-form input,
+.space-edit-form select {
+  width: 100%;
+}
+
+.space-edit-actions .btn-primary {
+  color: #fff;
+  border-color: var(--kh-purple);
+  background: var(--kh-purple);
+}
+
 .portal-page-heading > div:first-child {
   max-width: 760px;
 }
@@ -1549,5 +1593,11 @@ textarea.form-control {
   *::after {
     scroll-behavior: auto !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+@media (max-width: 720px) {
+  .space-edit-form {
+    grid-template-columns: 1fr;
   }
 }

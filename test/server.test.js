@@ -681,6 +681,8 @@ test("portal aggregate APIs return only explicitly accessible Spaces and threads
   const memberThreadsPayload = await memberThreadsResponse.json();
   assert.deepEqual(memberThreadsPayload.threads.map((thread) => thread.title), ["可見討論"]);
 
+  assert.equal(memberThreadsPayload.threads[0].authorDisplayName, "admin");
+
   const guestSpacesResponse = await fetch(`${testServer.baseUrl}/api/spaces`, { headers: { Cookie: guestLogin.cookie } });
   const guestSpacesPayload = await guestSpacesResponse.json();
   assert.deepEqual(guestSpacesPayload.spaces, []);

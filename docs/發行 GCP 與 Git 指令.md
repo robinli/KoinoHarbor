@@ -25,4 +25,23 @@ git commit -m "這次的備註"
 git push -u origin agent/workspace-thread-navigation
 
 # 建立正式 PR
-gh pr create --base main --head agent/workspace-thread-navigation --title "這次的備註" --body "這次的內容"
+gh pr create --base main --head codex-local --title "這次的備註" --body "這次的備註"
+
+---
+
+# 同步至本機
+git checkout main
+git pull origin main
+
+
+# 在 codex-local 分支上，將 main 分支的內容合併進來
+git checkout codex-local
+git merge main
+git push
+
+
+# 將合併後的 codex-local 推送至遠端
+git push origin codex-local
+
+
+

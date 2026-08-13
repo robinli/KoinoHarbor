@@ -34,9 +34,7 @@ const portalAdminNav = document.querySelector("#portal-admin-nav");
 const portalAllSpaces = document.querySelector("#portal-all-spaces");
 const portalBookmarks = document.querySelector("#portal-bookmarks");
 const portalSpaceList = document.querySelector("#portal-space-list");
-const spacesEyebrow = document.querySelector("#spaces-eyebrow");
 const spacesTitle = document.querySelector("#spaces-title");
-const spacesDescription = document.querySelector("#spaces-description");
 const discussionTitle = document.querySelector("#discussion-title");
 const dashboardThreadList = document.querySelector("#dashboard-thread-list");
 const dashboardSpaceFilter = document.querySelector("#dashboard-space-filter");
@@ -48,6 +46,9 @@ const statusEditForm = document.querySelector("#status-edit-form");
 const profileDialog = document.querySelector("#profile-dialog");
 const profileForm = document.querySelector("#profile-form");
 const profileMessage = document.querySelector("#profile-message");
+const spaceEditDialog = document.querySelector("#space-edit-dialog");
+const spaceEditForm = document.querySelector("#space-edit-form");
+const spaceEditMessage = document.querySelector("#space-edit-message");
 let availableUsers = [];
 let availableSpaces = [];
 let availableStatuses = [];
@@ -55,6 +56,8 @@ let signedInUser = null;
 let runtimeConfig = null;
 let selectedSidebarSpaceId = null;
 let selectedThreadSpaceId = null;
+let threadSourceUrl = null;
+let threadEmptyMessage = "目前沒有符合條件的討論串。";
 const messageTimers = new WeakMap();
 
 function setSystemMessage(messageElement, message, type = "success") {
@@ -160,6 +163,8 @@ function resetPortalData() {
   threadForm.hidden = true;
   selectedSidebarSpaceId = null;
   selectedThreadSpaceId = null;
+  threadSourceUrl = null;
+  threadEmptyMessage = "目前沒有符合條件的討論串。";
 }
 
 function showPortalView(viewName) {
@@ -187,13 +192,20 @@ function updateDiscussionHeading(space = null) {
 }
 
 function formatRelativeTime(value) {
-  const timestamp = new Date(value).getTime();
-  if (!Number.isFinite(timestamp)) return "unknown time";
+  const timestamp = new Date(value);
+  if (!Number.isFinite(timestamp.getTime())) return "unknown time";
 
-  const elapsedSeconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1_000));
+  const now = new Date();
+  const elapsedSeconds = Math.max(0, Math.floor((now.getTime() - timestamp.getTime()) / 1_000));
+  if (elapsedSeconds >= 604_800) {
+    return new Intl.DateTimeFormat("en-US", {
+      day: "numeric",
+      month: "short",
+      ...(timestamp.getFullYear() !== now.getFullYear() ? { year: "numeric" } : {}),
+    }).format(timestamp);
+  }
+
   const units = [
-    [31_536_000, "yr"],
-    [2_592_000, "mo"],
     [86_400, "day"],
     [3_600, "hr"],
     [60, "min"],
@@ -203,7 +215,7 @@ function formatRelativeTime(value) {
 
   const [seconds, label] = unit;
   const amount = Math.floor(elapsedSeconds / seconds);
-  return `${amount} ${label}${label === "day" && amount !== 1 ? "s" : ""} before`;
+  return `${amount} ${label}${amount !== 1 ? "s" : ""} ago`;
 }
 
 function formatFullDateTime(value) {
@@ -243,6 +255,7 @@ async function showWorkspaceThreads(spaceId = null) {
   threadSpaceFilter.value = selectedThreadSpaceId ?? "";
   updateDiscussionHeading(selectedSpace);
   updateWorkspaceThreadNavigation(selectedThreadSpaceId);
+  setThreadSource();
   await loadThreads();
 }
 
@@ -469,11 +482,7 @@ function renderSpaceOverview() {
   const selectedSpace = availableSpaces.find((space) => space.id === selectedSidebarSpaceId) ?? null;
   const visibleSpaces = selectedSpace ? [selectedSpace] : availableSpaces;
 
-  spacesEyebrow.textContent = selectedSpace ? "Workspace" : "Workspace overview";
-  spacesTitle.textContent = selectedSpace?.name ?? "全部工作區";
-  spacesDescription.textContent = selectedSpace
-    ? "顯示此工作區的資訊。"
-    : "顯示所有可存取工作區的資訊。";
+  spacesTitle.textContent = selectedSpace?.name ?? "工作區管理";
   spaceForm.hidden = signedInUser?.role !== "admin" || Boolean(selectedSpace);
   spaceList.replaceChildren(...visibleSpaces.map(createSpaceCard));
 
@@ -507,20 +516,15 @@ function createSpaceCard(space) {
   header.append(headingGroup);
 
   if (signedInUser.role === "admin") {
-    const archiveButton = document.createElement("button");
-    archiveButton.type = "button";
-    archiveButton.className = "archive-space-button";
-    archiveButton.textContent = space.archived ? "取消封存" : "封存";
-    archiveButton.addEventListener("click", async () => {
-      const response = await fetch(`/api/spaces/${encodeURIComponent(space.id)}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ archived: !space.archived }),
-      });
-      await readJsonResponse(response);
-      await loadSpaces();
-    });
-    header.append(archiveButton);
+    const editButton = document.createElement("button");
+    editButton.type = "button";
+    editButton.className = "edit-space-button";
+    editButton.textContent = "編輯工作區";
+    editButton.addEventListener("click", () => openSpaceEditDialog(space));
+    const actions = document.createElement("div");
+    actions.className = "space-item-actions";
+    actions.append(editButton);
+    header.append(actions);
   }
 
   const description = document.createElement("p");
@@ -579,6 +583,16 @@ function createSpaceCard(space) {
   }
 
   return card;
+}
+
+function openSpaceEditDialog(space) {
+  spaceEditForm.elements.spaceId.value = space.id;
+  spaceEditForm.elements.name.value = space.name;
+  spaceEditForm.elements.type.value = space.type;
+  spaceEditForm.elements.description.value = space.description ?? "";
+  spaceEditForm.elements.archived.value = String(Boolean(space.archived));
+  setSystemMessage(spaceEditMessage, "");
+  spaceEditDialog.showModal();
 }
 
 async function loadSpaces() {
@@ -1321,12 +1335,17 @@ function createThreadCard(thread) {
   return card;
 }
 
-async function loadThreads(sourceUrl = null, emptyMessage = "目前沒有符合條件的討論串。") {
+function setThreadSource(sourceUrl = null, emptyMessage = "目前沒有符合條件的討論串。") {
+  threadSourceUrl = sourceUrl;
+  threadEmptyMessage = emptyMessage;
+}
+
+async function loadThreads() {
   discussionMessage.textContent = "";
   const selectedSpaceId = threadSpaceFilter.value;
   const selectedStatusId = threadStatusFilter.value;
   try {
-    const url = sourceUrl ?? (selectedSpaceId ? `/api/threads?spaceId=${encodeURIComponent(selectedSpaceId)}` : "/api/threads");
+    const url = threadSourceUrl ?? (selectedSpaceId ? `/api/threads?spaceId=${encodeURIComponent(selectedSpaceId)}` : "/api/threads");
     const response = await fetch(url, { headers: { Accept: "application/json" } });
     const payload = await readJsonResponse(response);
     const threads = selectedStatusId
@@ -1336,7 +1355,7 @@ async function loadThreads(sourceUrl = null, emptyMessage = "目前沒有符合�
     if (!threads.length) {
       const empty = document.createElement("p");
       empty.className = "empty-state";
-      empty.textContent = emptyMessage;
+      empty.textContent = threadEmptyMessage;
       threadList.append(empty);
     }
   } catch (error) {
@@ -1583,6 +1602,35 @@ statusEditForm.addEventListener("submit", async (event) => {
   }
 });
 
+spaceEditForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const formData = new FormData(spaceEditForm);
+  const submitButton = spaceEditForm.querySelector('button[type="submit"]');
+  submitButton.disabled = true;
+  setSystemMessage(spaceEditMessage, "");
+  try {
+    const response = await fetch(`/api/spaces/${encodeURIComponent(formData.get("spaceId"))}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: formData.get("name"),
+        type: formData.get("type"),
+        description: formData.get("description"),
+        archived: formData.get("archived") === "true",
+      }),
+    });
+    await readJsonResponse(response);
+    spaceEditDialog.close();
+    await loadSpaces();
+    if (!discussionPanel.hidden) await loadThreads();
+    setSystemMessage(spaceMessage, "工作區已更新。");
+  } catch (error) {
+    setSystemMessage(spaceEditMessage, error.message, "error");
+  } finally {
+    submitButton.disabled = false;
+  }
+});
+
 threadForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const formData = new FormData(threadForm);
@@ -1713,7 +1761,8 @@ searchForm.addEventListener("submit", async (event) => {
   threadSpaceFilter.value = "";
   updateWorkspaceThreadNavigation(null, false);
   discussionTitle.textContent = "搜尋結果";
-  await loadThreads(`/api/search?q=${encodeURIComponent(query)}`);
+  setThreadSource(`/api/search?q=${encodeURIComponent(query)}`);
+  await loadThreads();
 });
 
 async function showBookmarks() {
@@ -1723,7 +1772,8 @@ async function showBookmarks() {
   updateWorkspaceThreadNavigation(null, false);
   portalBookmarks.classList.add("is-active");
   discussionTitle.textContent = "我的書籤";
-  await loadThreads("/api/bookmarks", "目前沒有已加入書籤的討論串。");
+  setThreadSource("/api/bookmarks", "目前沒有已加入書籤的討論串。");
+  await loadThreads();
 }
 
 portalBookmarks.addEventListener("click", showBookmarks);

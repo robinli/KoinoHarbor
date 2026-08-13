@@ -80,6 +80,10 @@ export function createFirestoreSpaceStore(app) {
       const update = { updatedAt: serverTimestamp(), updatedBy: actor.id };
       if (changes.name !== undefined) update.name = requiredText(changes.name, "工作區名稱");
       if (changes.description !== undefined) update.description = typeof changes.description === "string" ? changes.description.trim() : (() => { throw validationError("工作區說明必須是文字。"); })();
+      if (changes.type !== undefined) {
+        if (!["department", "project"].includes(changes.type)) throw validationError("工作區類型必須是 department 或 project。");
+        update.type = changes.type;
+      }
       if (changes.archived !== undefined) {
         if (typeof changes.archived !== "boolean") throw validationError("archived 必須是布林值。");
         update.archived = changes.archived;
