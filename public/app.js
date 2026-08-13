@@ -799,6 +799,8 @@ function renderAttachmentList(container, attachments, pendingRemovalIds = null) 
     icon.setAttribute("aria-hidden", "true");
     const link = document.createElement("a");
     link.href = `/api/attachments/${encodeURIComponent(attachment.id)}`;
+    link.target = "_blank";
+    link.rel = "noopener";
     link.textContent = attachment.fileName;
     const size = document.createElement("small");
     size.textContent = `${Math.ceil(attachment.fileSize / 1024)} KB`;

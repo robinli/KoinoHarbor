@@ -561,7 +561,7 @@ test("discussion status, thread, reply, bookmark and search API flow", async (co
   });
   assert.equal(downloadResponse.status, 200);
   assert.deepEqual(Buffer.from(await downloadResponse.arrayBuffer()), originalAttachment);
-  assert.match(downloadResponse.headers.get("content-disposition"), /attachment/);
+  assert.match(downloadResponse.headers.get("content-disposition"), /inline/);
 
   const replyAttachmentResponse = await fetch(`${testServer.baseUrl}/api/threads/${thread.id}/attachments`, {
     method: "POST",

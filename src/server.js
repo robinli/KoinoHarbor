@@ -863,7 +863,7 @@ export function createApplicationServer(options = {}) {
         }
         const file = await attachmentStore.read(attachmentId);
         response.writeHead(200, {
-          "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(file.metadata.fileName)}`,
+          "Content-Disposition": `inline; filename*=UTF-8''${encodeURIComponent(file.metadata.fileName)}`,
           "Content-Length": file.content.length,
           "Content-Type": file.metadata.mimeType,
           "X-Content-Type-Options": "nosniff",
