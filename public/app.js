@@ -43,13 +43,9 @@ const dashboardThreadList = document.querySelector("#dashboard-thread-list");
 const dashboardSpaceFilter = document.querySelector("#dashboard-space-filter");
 const announcementList = document.querySelector("#announcement-list");
 const statusSummary = document.querySelector("#status-summary");
-const createThreadDialog = document.querySelector("#create-thread-dialog");
 const threadSpaceSelect = document.querySelector("#thread-space-select");
 const statusEditDialog = document.querySelector("#status-edit-dialog");
 const statusEditForm = document.querySelector("#status-edit-form");
-const threadEditDialog = document.querySelector("#thread-edit-dialog");
-const threadEditForm = document.querySelector("#thread-edit-form");
-const threadEditStatusSelect = document.querySelector("#thread-edit-status-select");
 const profileDialog = document.querySelector("#profile-dialog");
 const profileForm = document.querySelector("#profile-form");
 const profileMessage = document.querySelector("#profile-message");
@@ -136,7 +132,7 @@ function resetPortalData() {
   dashboardSpaceFilter.replaceChildren();
   threadSpaceSelect.replaceChildren();
   threadStatusSelect.replaceChildren();
-  threadEditStatusSelect.replaceChildren();
+  threadForm.hidden = true;
   selectedSidebarSpaceId = null;
   selectedThreadSpaceId = null;
 }
@@ -577,7 +573,7 @@ async function loadSpaces() {
       updateDiscussionHeading(selectedSpace);
       updateWorkspaceThreadNavigation(selectedThreadSpaceId);
     }
-    for (const button of document.querySelectorAll("[data-open-thread-dialog]")) {
+    for (const button of document.querySelectorAll("[data-open-thread-form]")) {
       button.disabled = !activeSpaces.length;
       button.title = activeSpaces.length ? "新增討論" : "加入工作區後才能新增討論";
     }
@@ -657,13 +653,11 @@ async function loadStatuses() {
   noStatus.value = "";
   noStatus.textContent = "無狀態";
   threadStatusSelect.append(noStatus);
-  threadEditStatusSelect.replaceChildren(noStatus.cloneNode(true));
   for (const status of availableStatuses.filter((item) => item.active)) {
     const option = document.createElement("option");
     option.value = status.id;
     option.textContent = status.name;
     threadStatusSelect.append(option);
-    threadEditStatusSelect.append(option.cloneNode(true));
   }
 }
 
@@ -676,25 +670,311 @@ function fileToBase64(file) {
   });
 }
 
-async function loadAttachments(threadId, container) {
-  const response = await fetch(`/api/threads/${encodeURIComponent(threadId)}/attachments`);
-  const payload = await readJsonResponse(response);
-  container.replaceChildren(...payload.attachments.map((attachment) => {
+const acceptedAttachmentTypes = ".jpg,.jpeg,.png,.webp,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip";
+
+function createFilePicker(input, container) {
+  let files = [];
+  const render = () => {
+    container.replaceChildren(...files.map((file, index) => {
+      const row = document.createElement("div");
+      row.className = "selected-attachment";
+      const label = document.createElement("span");
+      label.textContent = `${file.name} · ${Math.ceil(file.size / 1024)} KB`;
+      const removeButton = document.createElement("button");
+      removeButton.type = "button";
+      removeButton.className = "attachment-remove-button secondary-button";
+      removeButton.textContent = "移除";
+      removeButton.addEventListener("click", () => {
+        files.splice(index, 1);
+        render();
+      });
+      row.append(label, removeButton);
+      return row;
+    }));
+    container.hidden = files.length === 0;
+  };
+  input.addEventListener("change", () => {
+    for (const file of input.files) {
+      if (!files.some((item) => item.name === file.name && item.size === file.size && item.lastModified === file.lastModified)) files.push(file);
+    }
+    input.value = "";
+    render();
+  });
+  render();
+  return Object.freeze({
+    get files() { return [...files]; },
+    reset() { files = []; input.value = ""; render(); },
+  });
+}
+
+function createFileControl(label = "附加檔案") {
+  const wrapper = document.createElement("div");
+  wrapper.className = "message-file-control";
+  const field = document.createElement("label");
+  field.textContent = label;
+  const input = document.createElement("input");
+  input.type = "file";
+  input.multiple = true;
+  input.accept = acceptedAttachmentTypes;
+  field.append(input);
+  const selectedList = document.createElement("div");
+  selectedList.className = "selected-attachment-list";
+  wrapper.append(field, selectedList);
+  return { element: wrapper, picker: createFilePicker(input, selectedList) };
+}
+
+const threadCreationFilePicker = createFilePicker(
+  threadForm.elements.attachments,
+  threadForm.querySelector("[data-selected-attachments]"),
+);
+
+async function uploadAttachments(threadId, files, replyId = null) {
+  for (const file of files) {
+    const response = await fetch(`/api/threads/${encodeURIComponent(threadId)}/attachments`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contentBase64: await fileToBase64(file),
+        fileName: file.name,
+        mimeType: file.type || "application/octet-stream",
+        replyId,
+      }),
+    });
+    await readJsonResponse(response);
+  }
+}
+
+async function deleteAttachments(attachmentIds) {
+  for (const attachmentId of attachmentIds) {
+    const response = await fetch(`/api/attachments/${encodeURIComponent(attachmentId)}`, { method: "DELETE" });
+    await readJsonResponse(response);
+  }
+}
+
+function renderAttachmentList(container, attachments, pendingRemovalIds = null) {
+  container.replaceChildren(...attachments.map((attachment) => {
     const row = document.createElement("div");
     row.className = "attachment-row";
+    const identity = document.createElement("span");
+    identity.className = "attachment-identity";
+    const icon = document.createElement("i");
+    icon.className = "bi bi-paperclip";
+    icon.setAttribute("aria-hidden", "true");
     const link = document.createElement("a");
     link.href = `/api/attachments/${encodeURIComponent(attachment.id)}`;
     link.textContent = attachment.fileName;
     const size = document.createElement("small");
     size.textContent = `${Math.ceil(attachment.fileSize / 1024)} KB`;
-    row.append(link, size);
+    identity.append(icon, link, size);
+    row.append(identity);
+    if (pendingRemovalIds) {
+      const removeButton = document.createElement("button");
+      removeButton.type = "button";
+      removeButton.className = "attachment-remove-button secondary-button";
+      const updateRemovalState = () => {
+        const pending = pendingRemovalIds.has(attachment.id);
+        row.classList.toggle("is-pending-removal", pending);
+        removeButton.textContent = pending ? "復原" : "移除";
+      };
+      removeButton.addEventListener("click", () => {
+        if (pendingRemovalIds.has(attachment.id)) pendingRemovalIds.delete(attachment.id);
+        else pendingRemovalIds.add(attachment.id);
+        updateRemovalState();
+      });
+      updateRemovalState();
+      row.append(removeButton);
+    }
     return row;
   }));
+  container.hidden = attachments.length === 0;
+}
+
+function createStatusSelect(selectedStatusId) {
+  const select = document.createElement("select");
+  select.name = "statusId";
+  const noStatus = document.createElement("option");
+  noStatus.value = "";
+  noStatus.textContent = "無狀態";
+  select.append(noStatus);
+  for (const status of availableStatuses.filter((item) => item.active || item.id === selectedStatusId)) {
+    const option = document.createElement("option");
+    option.value = status.id;
+    option.textContent = status.name;
+    select.append(option);
+  }
+  select.value = selectedStatusId || "";
+  return select;
+}
+
+function createReplyComposer(thread, { parentReplyId = null, onCancel, onComplete }) {
+  const form = document.createElement("form");
+  form.className = `message-composer${parentReplyId ? " nested-reply-composer" : ""}`;
+  const textarea = document.createElement("textarea");
+  textarea.name = "content";
+  textarea.rows = 4;
+  textarea.required = true;
+  textarea.placeholder = parentReplyId ? "回覆這則訊息" : "新增回覆";
+  const fileControl = createFileControl();
+  const actions = document.createElement("div");
+  actions.className = "message-form-actions";
+  const cancelButton = document.createElement("button");
+  cancelButton.type = "button";
+  cancelButton.className = "secondary-button";
+  cancelButton.textContent = "取消";
+  cancelButton.addEventListener("click", onCancel);
+  const submitButton = document.createElement("button");
+  submitButton.type = "submit";
+  submitButton.textContent = "回覆";
+  actions.append(cancelButton, submitButton);
+  form.append(textarea, fileControl.element, actions);
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    submitButton.disabled = true;
+    try {
+      const response = await fetch(`/api/threads/${encodeURIComponent(thread.id)}/replies`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: textarea.value, parentReplyId }),
+      });
+      const payload = await readJsonResponse(response);
+      await uploadAttachments(thread.id, fileControl.picker.files, payload.reply.id);
+      textarea.value = "";
+      fileControl.picker.reset();
+      await onComplete();
+    } catch (error) {
+      discussionMessage.textContent = error.message;
+    } finally {
+      submitButton.disabled = false;
+    }
+  });
+  return { element: form, focus: () => textarea.focus() };
+}
+
+function renderReplyTree(thread, replies, attachments, container, onRefresh) {
+  const childrenByParent = new Map();
+  const knownReplyIds = new Set(replies.map((reply) => reply.id));
+  for (const reply of replies) {
+    const parentId = knownReplyIds.has(reply.parentReplyId) ? reply.parentReplyId : null;
+    const siblings = childrenByParent.get(parentId) ?? [];
+    siblings.push(reply);
+    childrenByParent.set(parentId, siblings);
+  }
+
+  const createReplyItem = (reply, ancestry = new Set()) => {
+    const item = document.createElement("li");
+    item.className = "reply-item";
+    const message = document.createElement("div");
+    message.className = "reply-message";
+    const content = document.createElement("p");
+    content.className = "reply-content";
+    content.textContent = reply.content;
+    const replyAttachments = attachments.filter((attachment) => attachment.replyId === reply.id);
+    const attachmentList = document.createElement("div");
+    attachmentList.className = "attachment-list reply-attachment-list";
+    renderAttachmentList(attachmentList, replyAttachments);
+    const actions = document.createElement("div");
+    actions.className = "reply-message-actions";
+    const replyButton = document.createElement("button");
+    replyButton.type = "button";
+    replyButton.className = "reply-inline-action";
+    replyButton.textContent = "回覆";
+    actions.append(replyButton);
+    const canEditReply = signedInUser.id === reply.authorId;
+    if (canEditReply) {
+      const separator = document.createElement("span");
+      separator.className = "reply-action-separator";
+      separator.textContent = "|";
+      const editButton = document.createElement("button");
+      editButton.type = "button";
+      editButton.className = "reply-inline-action";
+      editButton.textContent = "編輯";
+      actions.append(separator, editButton);
+      editButton.addEventListener("click", () => {
+        if (item.querySelector(":scope > .message-edit-form")) return;
+        message.hidden = true;
+        const pendingRemovalIds = new Set();
+        const form = document.createElement("form");
+        form.className = "message-edit-form";
+        const textarea = document.createElement("textarea");
+        textarea.name = "content";
+        textarea.rows = 4;
+        textarea.required = true;
+        textarea.value = reply.content;
+        const existingAttachments = document.createElement("div");
+        existingAttachments.className = "attachment-list editable-attachment-list";
+        renderAttachmentList(existingAttachments, replyAttachments, pendingRemovalIds);
+        const fileControl = createFileControl("新增附加檔案");
+        const formActions = document.createElement("div");
+        formActions.className = "message-form-actions";
+        const cancelButton = document.createElement("button");
+        cancelButton.type = "button";
+        cancelButton.className = "secondary-button";
+        cancelButton.textContent = "取消";
+        cancelButton.addEventListener("click", () => {
+          form.remove();
+          message.hidden = false;
+        });
+        const saveButton = document.createElement("button");
+        saveButton.type = "submit";
+        saveButton.textContent = "儲存變更";
+        formActions.append(cancelButton, saveButton);
+        form.append(textarea, existingAttachments, fileControl.element, formActions);
+        form.addEventListener("submit", async (event) => {
+          event.preventDefault();
+          saveButton.disabled = true;
+          try {
+            const response = await fetch(`/api/threads/${encodeURIComponent(thread.id)}/replies/${encodeURIComponent(reply.id)}`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ content: textarea.value }),
+            });
+            await readJsonResponse(response);
+            await deleteAttachments(pendingRemovalIds);
+            await uploadAttachments(thread.id, fileControl.picker.files, reply.id);
+            await onRefresh();
+          } catch (error) {
+            discussionMessage.textContent = error.message;
+            saveButton.disabled = false;
+          }
+        });
+        item.insertBefore(form, message.nextSibling);
+        textarea.focus();
+      });
+    }
+    message.append(content, attachmentList, actions);
+    const composerHost = document.createElement("div");
+    composerHost.className = "nested-composer-host";
+    replyButton.addEventListener("click", () => {
+      composerHost.replaceChildren();
+      const composer = createReplyComposer(thread, {
+        parentReplyId: reply.id,
+        onCancel: () => composerHost.replaceChildren(),
+        onComplete: onRefresh,
+      });
+      composerHost.append(composer.element);
+      composer.focus();
+    });
+    item.append(message, composerHost);
+    const childReplies = (childrenByParent.get(reply.id) ?? []).filter((child) => !ancestry.has(child.id));
+    if (childReplies.length) {
+      const childList = document.createElement("ul");
+      childList.className = "reply-children";
+      const nextAncestry = new Set(ancestry).add(reply.id);
+      childList.append(...childReplies.map((child) => createReplyItem(child, nextAncestry)));
+      item.append(childList);
+    }
+    return item;
+  };
+
+  container.replaceChildren(...(childrenByParent.get(null) ?? []).map((reply) => createReplyItem(reply)));
+  container.hidden = replies.length === 0;
 }
 
 function createThreadCard(thread) {
   const card = document.createElement("article");
   card.className = `thread-card${thread.pinned ? " is-pinned" : ""}${thread.archived ? " is-archived" : ""}`;
+  const display = document.createElement("div");
+  display.className = "thread-display";
   const header = document.createElement("div");
   header.className = "thread-card-header";
   const titleGroup = document.createElement("div");
@@ -721,12 +1001,10 @@ function createThreadCard(thread) {
   const replyLabel = document.createElement("span");
   replyLabel.textContent = "回覆";
   replyAction.append(replyIcon, replyLabel);
-  replyAction.addEventListener("click", () => replyInput.focus());
 
   const actionSeparator = document.createElement("span");
   actionSeparator.className = "thread-action-separator";
   actionSeparator.setAttribute("aria-hidden", "true");
-
   const actionMenu = document.createElement("details");
   actionMenu.className = "thread-action-menu";
   const actionMenuToggle = document.createElement("summary");
@@ -739,11 +1017,7 @@ function createThreadCard(thread) {
   const moreIcon = document.createElement("i");
   moreIcon.className = "bi bi-three-dots";
   moreIcon.setAttribute("aria-hidden", "true");
-  const moreLabel = document.createElement("span");
-  moreLabel.className = "visually-hidden";
-  moreLabel.textContent = "更多操作";
-  actionMenuToggle.append(moreIcon, moreLabel);
-
+  actionMenuToggle.append(moreIcon);
   const actionMenuList = document.createElement("div");
   actionMenuList.className = "thread-menu-list";
   actionMenuList.setAttribute("role", "menu");
@@ -761,27 +1035,14 @@ function createThreadCard(thread) {
     button.addEventListener("click", async () => {
       actionMenu.removeAttribute("open");
       button.disabled = true;
-      try {
-        await action();
-      } catch (error) {
-        discussionMessage.textContent = error.message;
-      } finally {
-        button.disabled = false;
-      }
+      try { await action(); } catch (error) { discussionMessage.textContent = error.message; } finally { button.disabled = false; }
     });
     actionMenuList.append(button);
   };
 
-  if (signedInUser.role === "admin" || signedInUser.id === thread.authorId) {
-    addMenuItem("編輯", "bi-pencil", () => {
-      threadEditForm.elements.threadId.value = thread.id;
-      threadEditForm.elements.title.value = thread.title;
-      threadEditForm.elements.content.value = thread.content;
-      threadEditForm.elements.statusId.value = thread.statusId || "";
-      threadEditDialog.showModal();
-    });
-  }
-
+  let threadAttachments = [];
+  let detailsReady;
+  if (signedInUser.role === "admin" || signedInUser.id === thread.authorId) addMenuItem("編輯", "bi-pencil", () => openThreadEditor());
   addMenuItem("加入書籤", "bi-bookmark", async () => {
     const response = await fetch(`/api/threads/${encodeURIComponent(thread.id)}/bookmark`, {
       method: "PUT",
@@ -791,112 +1052,127 @@ function createThreadCard(thread) {
     await readJsonResponse(response);
     discussionMessage.textContent = "已加入個人書籤。";
   });
-
   if (signedInUser.role === "admin") {
     for (const [label, field, iconClass] of [
       [thread.pinned ? "取消置頂" : "置頂", "pinned", thread.pinned ? "bi-pin-angle-fill" : "bi-pin-angle"],
       [thread.archived ? "取消封存" : "封存", "archived", "bi-archive"],
-    ]) {
-      addMenuItem(label, iconClass, async () => {
-        const response = await fetch(`/api/threads/${encodeURIComponent(thread.id)}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ [field]: !thread[field] }),
-        });
-        await readJsonResponse(response);
-        await loadThreads();
+    ]) addMenuItem(label, iconClass, async () => {
+      const response = await fetch(`/api/threads/${encodeURIComponent(thread.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ [field]: !thread[field] }),
       });
-    }
+      await readJsonResponse(response);
+      await loadThreads();
+    });
   }
-
   actionMenu.append(actionMenuToggle, actionMenuList);
-  actionMenu.addEventListener("toggle", () => {
-    actionMenuToggle.setAttribute("aria-expanded", String(actionMenu.open));
-  });
+  actionMenu.addEventListener("toggle", () => actionMenuToggle.setAttribute("aria-expanded", String(actionMenu.open)));
   headerActions.append(replyAction, actionSeparator, actionMenu);
   header.append(titleGroup, headerActions);
   const body = document.createElement("p");
   body.className = "thread-body";
   body.textContent = thread.content;
-
+  const attachmentList = document.createElement("div");
+  attachmentList.className = "attachment-list thread-attachment-list";
   const replyList = document.createElement("ul");
   replyList.className = "reply-list";
-  const replyForm = document.createElement("form");
-  replyForm.className = "reply-form";
-  const replyInput = document.createElement("input");
-  replyInput.required = true;
-  replyInput.placeholder = "新增回覆";
-  const replyButton = document.createElement("button");
-  replyButton.type = "submit";
-  replyButton.textContent = "回覆";
-  replyForm.append(replyInput, replyButton);
-  replyForm.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const response = await fetch(`/api/threads/${encodeURIComponent(thread.id)}/replies`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content: replyInput.value }),
+  const topComposer = createReplyComposer(thread, {
+    onCancel: () => { topComposer.element.hidden = true; },
+    onComplete: async () => { topComposer.element.hidden = true; await refreshDetails(); },
+  });
+  topComposer.element.hidden = true;
+  replyAction.addEventListener("click", () => {
+    topComposer.element.hidden = false;
+    topComposer.focus();
+  });
+  display.append(header, body, attachmentList, replyList, topComposer.element);
+  card.append(display);
+
+  async function refreshDetails() {
+    const [detailsResponse, attachmentsResponse] = await Promise.all([
+      fetch(`/api/threads/${encodeURIComponent(thread.id)}`),
+      fetch(`/api/threads/${encodeURIComponent(thread.id)}/attachments`),
+    ]);
+    const detailsPayload = await readJsonResponse(detailsResponse);
+    const attachmentsPayload = await readJsonResponse(attachmentsResponse);
+    threadAttachments = attachmentsPayload.attachments.filter((attachment) => !attachment.replyId);
+    renderAttachmentList(attachmentList, threadAttachments);
+    renderReplyTree(thread, detailsPayload.replies, attachmentsPayload.attachments, replyList, refreshDetails);
+  }
+
+  async function openThreadEditor() {
+    if (card.querySelector(":scope > .thread-inline-editor")) return;
+    await detailsReady;
+    display.hidden = true;
+    const pendingRemovalIds = new Set();
+    const form = document.createElement("form");
+    form.className = "message-edit-form thread-inline-editor";
+    const heading = document.createElement("h3");
+    heading.textContent = "編輯討論";
+    const titleField = document.createElement("label");
+    titleField.textContent = "標題";
+    const titleInput = document.createElement("input");
+    titleInput.name = "title";
+    titleInput.required = true;
+    titleInput.maxLength = 120;
+    titleInput.value = thread.title;
+    titleField.append(titleInput);
+    const statusField = document.createElement("label");
+    statusField.textContent = "狀態";
+    statusField.append(createStatusSelect(thread.statusId));
+    const contentField = document.createElement("label");
+    contentField.textContent = "內容";
+    const contentInput = document.createElement("textarea");
+    contentInput.name = "content";
+    contentInput.rows = 6;
+    contentInput.required = true;
+    contentInput.value = thread.content;
+    contentField.append(contentInput);
+    const existingAttachments = document.createElement("div");
+    existingAttachments.className = "attachment-list editable-attachment-list";
+    renderAttachmentList(existingAttachments, threadAttachments, pendingRemovalIds);
+    const fileControl = createFileControl("新增附加檔案");
+    const formActions = document.createElement("div");
+    formActions.className = "message-form-actions";
+    const cancelButton = document.createElement("button");
+    cancelButton.type = "button";
+    cancelButton.className = "secondary-button";
+    cancelButton.textContent = "取消";
+    cancelButton.addEventListener("click", () => { form.remove(); display.hidden = false; });
+    const saveButton = document.createElement("button");
+    saveButton.type = "submit";
+    saveButton.textContent = "儲存變更";
+    formActions.append(cancelButton, saveButton);
+    form.append(heading, titleField, statusField, contentField, existingAttachments, fileControl.element, formActions);
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      saveButton.disabled = true;
+      try {
+        const formData = new FormData(form);
+        const response = await fetch(`/api/threads/${encodeURIComponent(thread.id)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ content: formData.get("content"), statusId: formData.get("statusId") || null, title: formData.get("title") }),
+        });
+        await readJsonResponse(response);
+        await deleteAttachments(pendingRemovalIds);
+        await uploadAttachments(thread.id, fileControl.picker.files);
+        await loadDashboard();
+        await loadThreads();
+        discussionMessage.textContent = "討論資料已更新。";
+      } catch (error) {
+        discussionMessage.textContent = error.message;
+        saveButton.disabled = false;
+      }
     });
-    await readJsonResponse(response);
-    replyInput.value = "";
-    await loadThreadDetails(thread.id, replyList);
-  });
+    card.append(form);
+    titleInput.focus();
+  }
 
-  const attachmentList = document.createElement("div");
-  attachmentList.className = "attachment-list";
-  const attachmentForm = document.createElement("form");
-  attachmentForm.className = "attachment-form";
-  const fileInput = document.createElement("input");
-  fileInput.type = "file";
-  fileInput.required = true;
-  fileInput.accept = ".jpg,.jpeg,.png,.webp,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip";
-  const uploadButton = document.createElement("button");
-  uploadButton.type = "submit";
-  uploadButton.textContent = "上傳附件";
-  attachmentForm.append(fileInput, uploadButton);
-  attachmentForm.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const [file] = fileInput.files;
-    if (!file) return;
-    uploadButton.disabled = true;
-    try {
-      const response = await fetch(`/api/threads/${encodeURIComponent(thread.id)}/attachments`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contentBase64: await fileToBase64(file),
-          fileName: file.name,
-          mimeType: file.type || "application/octet-stream",
-        }),
-      });
-      await readJsonResponse(response);
-      attachmentForm.reset();
-      await loadAttachments(thread.id, attachmentList);
-    } catch (error) {
-      discussionMessage.textContent = error.message;
-    } finally {
-      uploadButton.disabled = false;
-    }
-  });
-
-  card.append(header, body, replyList, replyForm, attachmentList, attachmentForm);
-  loadThreadDetails(thread.id, replyList).catch((error) => {
-    discussionMessage.textContent = error.message;
-  });
-  loadAttachments(thread.id, attachmentList).catch((error) => {
-    discussionMessage.textContent = error.message;
-  });
+  detailsReady = refreshDetails();
+  detailsReady.catch((error) => { discussionMessage.textContent = error.message; });
   return card;
-}
-
-async function loadThreadDetails(threadId, replyList) {
-  const response = await fetch(`/api/threads/${encodeURIComponent(threadId)}`);
-  const payload = await readJsonResponse(response);
-  replyList.replaceChildren(...payload.replies.map((reply) => {
-    const item = document.createElement("li");
-    item.textContent = reply.content;
-    return item;
-  }));
 }
 
 async function loadThreads(sourceUrl = null, emptyMessage = "目前沒有符合條件的討論串。") {
@@ -1160,6 +1436,8 @@ statusEditForm.addEventListener("submit", async (event) => {
 threadForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const formData = new FormData(threadForm);
+  const submitButton = threadForm.querySelector('button[type="submit"]');
+  submitButton.disabled = true;
   try {
     const response = await fetch("/api/threads", {
       method: "POST",
@@ -1171,36 +1449,18 @@ threadForm.addEventListener("submit", async (event) => {
         title: formData.get("title"),
       }),
     });
-    await readJsonResponse(response);
+    const payload = await readJsonResponse(response);
+    await uploadAttachments(payload.thread.id, threadCreationFilePicker.files);
     threadForm.reset();
-    createThreadDialog.close();
+    threadCreationFilePicker.reset();
+    threadForm.hidden = true;
     await loadDashboard();
     await loadThreads();
     discussionMessage.textContent = "討論已建立。";
   } catch (error) {
     discussionMessage.textContent = error.message;
-  }
-});
-
-threadEditForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const formData = new FormData(threadEditForm);
-  try {
-    const response = await fetch(`/api/threads/${encodeURIComponent(formData.get("threadId"))}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        content: formData.get("content"),
-        statusId: formData.get("statusId") || null,
-        title: formData.get("title"),
-      }),
-    });
-    await readJsonResponse(response);
-    threadEditDialog.close();
-    await loadThreads();
-    discussionMessage.textContent = "討論資料已更新。";
-  } catch (error) {
-    discussionMessage.textContent = error.message;
+  } finally {
+    submitButton.disabled = false;
   }
 });
 
@@ -1276,14 +1536,23 @@ for (const button of document.querySelectorAll("[data-portal-target]")) {
   });
 }
 
-for (const button of document.querySelectorAll("[data-open-thread-dialog]")) {
-  button.addEventListener("click", () => {
+for (const button of document.querySelectorAll("[data-open-thread-form]")) {
+  button.addEventListener("click", async () => {
+    if (discussionPanel.hidden) await showWorkspaceThreads(dashboardSpaceFilter.value || null);
     if (threadSpaceFilter.value && [...threadSpaceSelect.options].some((option) => option.value === threadSpaceFilter.value)) {
       threadSpaceSelect.value = threadSpaceFilter.value;
     }
-    createThreadDialog.showModal();
+    threadForm.hidden = false;
+    threadForm.elements.title.focus();
+    threadForm.scrollIntoView({ behavior: "smooth", block: "start" });
   });
 }
+
+document.querySelector("[data-cancel-thread-form]").addEventListener("click", () => {
+  threadForm.reset();
+  threadCreationFilePicker.reset();
+  threadForm.hidden = true;
+});
 
 searchForm.addEventListener("submit", async (event) => {
   event.preventDefault();

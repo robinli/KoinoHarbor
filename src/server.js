@@ -701,7 +701,7 @@ export function createApplicationServer(options = {}) {
           decodeURIComponent(replyRouteMatch[2]),
           body.content,
           currentUser,
-          currentUser.role === "admin",
+          false,
         );
         if (!reply) {
           sendJson(response, 404, { error: "reply_not_found", message: "找不到指定的回覆。" });
@@ -788,12 +788,53 @@ export function createApplicationServer(options = {}) {
           return;
         }
         const body = await readJsonBody(request, 28 * 1024 * 1024);
+        const targetReply = body.replyId ? await discussionStore.getReply(threadId, body.replyId) : null;
+        if (body.replyId && !targetReply) {
+          sendJson(response, 404, { error: "reply_not_found", message: "找不到指定的回覆。" });
+          return;
+        }
+        const messageAuthorId = targetReply?.authorId ?? thread.authorId;
+        const canManageAttachment = targetReply
+          ? currentUser.id === messageAuthorId
+          : currentUser.role === "admin" || currentUser.id === messageAuthorId;
+        if (!canManageAttachment) {
+          sendJson(response, 403, { error: "forbidden", message: "只能替自己的訊息上傳附件。" });
+          return;
+        }
         const attachment = await attachmentStore.create({ ...body, spaceId: thread.spaceId, threadId }, currentUser);
         sendJson(response, 201, { attachment });
         return;
       }
 
       const attachmentRouteMatch = requestUrl.pathname.match(/^\/api\/attachments\/([^/]+)$/);
+      if (request.method === "DELETE" && attachmentRouteMatch) {
+        const currentUser = requireUser(request, response, authService);
+        if (!currentUser) return;
+        const attachmentId = decodeURIComponent(attachmentRouteMatch[1]);
+        const attachment = await attachmentStore.getMetadata(attachmentId);
+        if (!attachment) {
+          sendJson(response, 404, { error: "attachment_not_found", message: "找不到指定的附件。" });
+          return;
+        }
+        const thread = await discussionStore.getThread(attachment.threadId);
+        if (!thread || !await spaceStore.canAccess(thread.spaceId, currentUser)) {
+          sendJson(response, 403, { error: "forbidden", message: "沒有移除附件的權限。" });
+          return;
+        }
+        const targetReply = attachment.replyId ? await discussionStore.getReply(thread.id, attachment.replyId) : null;
+        const messageAuthorId = targetReply?.authorId ?? thread.authorId;
+        const canManageAttachment = targetReply
+          ? currentUser.id === messageAuthorId
+          : currentUser.role === "admin" || currentUser.id === messageAuthorId;
+        if (!canManageAttachment) {
+          sendJson(response, 403, { error: "forbidden", message: "只能移除自己訊息的附件。" });
+          return;
+        }
+        await attachmentStore.delete(attachmentId);
+        sendJson(response, 200, { attachment, status: "deleted" });
+        return;
+      }
+
       if (request.method === "GET" && attachmentRouteMatch) {
         const currentUser = requireUser(request, response, authService);
         if (!currentUser) return;

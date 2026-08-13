@@ -203,9 +203,11 @@ export function createFirestoreDiscussionStore(app) {
     async createReply(threadId, input, actor) {
       const parent = threads.doc(threadId);
       if (!(await parent.get()).exists) return null;
+      const parentReplyId = input.parentReplyId || null;
+      if (parentReplyId && !(await parent.collection("replies").doc(parentReplyId).get()).exists) throw validationError("指定的父回覆不存在。");
       const reference = parent.collection("replies").doc();
       const now = serverTimestamp();
-      await reference.set({ authorId: actor.id, content: requiredText(input.content, "回覆內容"), createdAt: now, createdBy: actor.id, threadId, updatedAt: now, updatedBy: actor.id });
+      await reference.set({ authorId: actor.id, content: requiredText(input.content, "回覆內容"), createdAt: now, createdBy: actor.id, parentReplyId, threadId, updatedAt: now, updatedBy: actor.id });
       await parent.update({ updatedAt: now, updatedBy: actor.id });
       return plain(await reference.get());
     },
@@ -213,11 +215,12 @@ export function createFirestoreDiscussionStore(app) {
       if (!(await threads.doc(threadId).get()).exists) return null;
       return (await threads.doc(threadId).collection("replies").orderBy("createdAt").get()).docs.map(plain);
     },
-    async updateReply(threadId, replyId, content, actor, canModerate) {
+    async getReply(threadId, replyId) { return plain(await threads.doc(threadId).collection("replies").doc(replyId).get()); },
+    async updateReply(threadId, replyId, content, actor, _canModerate) {
       const reference = threads.doc(threadId).collection("replies").doc(replyId);
       const current = plain(await reference.get());
       if (!current) return null;
-      if (actor.id !== current.authorId && !canModerate) { const error = new Error("只能修改自己的回覆。"); error.statusCode = 403; throw error; }
+      if (actor.id !== current.authorId) { const error = new Error("只能修改自己的回覆。"); error.statusCode = 403; throw error; }
       await reference.update({ content: requiredText(content, "回覆內容"), updatedAt: serverTimestamp(), updatedBy: actor.id });
       return plain(await reference.get());
     },
@@ -273,6 +276,14 @@ export function createFirebaseAttachmentStore(app) {
       if (!metadata) return null;
       const [content] = await bucket.file(metadata.storagePath).download();
       return { content, metadata };
+    },
+    async delete(id) {
+      const reference = attachments.doc(id);
+      const metadata = plain(await reference.get());
+      if (!metadata) return null;
+      await bucket.file(metadata.storagePath).delete({ ignoreNotFound: true });
+      await reference.delete();
+      return metadata;
     },
   });
 }

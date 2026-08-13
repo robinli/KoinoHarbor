@@ -81,7 +81,7 @@
                 </div>
                 <div class="portal-heading-actions">
                   <label>工作區<select id="dashboard-space-filter"></select></label>
-                  <button type="button" data-open-thread-dialog>新增討論</button>
+                  <button type="button" data-open-thread-form>新增討論</button>
                 </div>
               </div>
               <div class="dashboard-grid">
@@ -126,8 +126,18 @@
             <section class="discussion-panel portal-view" id="discussion-panel" data-portal-view="discussions" aria-labelledby="discussion-title" hidden>
               <div class="portal-page-heading">
                 <div><p class="eyebrow">Threads</p><h2 id="discussion-title">全部討論</h2><p id="discussion-description">依工作區、狀態或關鍵字尋找工作討論。</p></div>
-                <button type="button" data-open-thread-dialog>新增討論</button>
+                <button type="button" data-open-thread-form>新增討論</button>
               </div>
+              <form class="thread-form inline-thread-form" id="thread-form" hidden>
+                <div class="inline-form-heading"><div><p class="eyebrow">New thread</p><h3>新增討論</h3></div></div>
+                <label>工作區<select name="spaceId" id="thread-space-select" required></select></label>
+                <label>標題<input name="title" required maxlength="120"></label>
+                <label>狀態<select name="statusId" id="thread-status-select"></select></label>
+                <label class="thread-content-field">內容<textarea name="content" rows="6" required></textarea></label>
+                <label class="thread-attachment-field">附加檔案<input name="attachments" type="file" multiple accept=".jpg,.jpeg,.png,.webp,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip"></label>
+                <div class="selected-attachment-list" data-selected-attachments></div>
+                <div class="inline-form-actions"><button class="secondary-button" type="button" data-cancel-thread-form>取消</button><button type="submit">建立討論</button></div>
+              </form>
               <div class="discussion-toolbar">
                 <label>工作區<select id="thread-space-filter"></select></label>
                 <form class="search-form" id="search-form">
@@ -227,52 +237,6 @@
           <div class="dialog-actions">
             <button class="secondary-button" type="button" data-close-dialog>取消</button>
             <button type="submit">儲存變更</button>
-          </div>
-        </form>
-      </dialog>
-
-      <dialog class="edit-dialog" id="thread-edit-dialog">
-        <form class="edit-dialog-form" id="thread-edit-form">
-          <div class="edit-dialog-heading">
-            <div>
-              <p class="eyebrow">Thread</p>
-              <h2>編輯討論</h2>
-            </div>
-            <button class="dialog-close" type="button" data-close-dialog aria-label="關閉">×</button>
-          </div>
-          <input name="threadId" type="hidden">
-          <label>
-            標題
-            <input name="title" required maxlength="120">
-          </label>
-          <label>
-            狀態
-            <select name="statusId" id="thread-edit-status-select"></select>
-          </label>
-          <label>
-            內容
-            <textarea name="content" rows="8" required></textarea>
-          </label>
-          <div class="dialog-actions">
-            <button class="secondary-button" type="button" data-close-dialog>取消</button>
-            <button type="submit">儲存變更</button>
-          </div>
-        </form>
-      </dialog>
-
-      <dialog class="edit-dialog" id="create-thread-dialog">
-        <form class="edit-dialog-form thread-form" id="thread-form">
-          <div class="edit-dialog-heading">
-            <div><p class="eyebrow">New thread</p><h2>新增討論</h2></div>
-            <button class="dialog-close" type="button" data-close-dialog aria-label="關閉">×</button>
-          </div>
-          <label>工作區<select name="spaceId" id="thread-space-select" required></select></label>
-          <label>標題<input name="title" required maxlength="120"></label>
-          <label>狀態<select name="statusId" id="thread-status-select"></select></label>
-          <label>內容<textarea name="content" rows="7" required></textarea></label>
-          <div class="dialog-actions">
-            <button class="secondary-button" type="button" data-close-dialog>取消</button>
-            <button type="submit">建立討論</button>
           </div>
         </form>
       </dialog>

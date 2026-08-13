@@ -191,12 +191,18 @@ export function createInMemoryDiscussionStore() {
         return null;
       }
 
+      const parentReplyId = input.parentReplyId || null;
+      if (parentReplyId && !replies.get(threadId).has(parentReplyId)) {
+        throw validationError("指定的父回覆不存在。");
+      }
+
       const reply = {
         authorId: actor.id,
         content: requiredText(input.content, "回覆內容"),
         createdAt: now.toISOString(),
         createdBy: actor.id,
         id: randomUUID(),
+        parentReplyId,
         threadId,
         updatedAt: now.toISOString(),
         updatedBy: actor.id,
@@ -215,10 +221,15 @@ export function createInMemoryDiscussionStore() {
         .map(copy);
     },
 
-    updateReply(threadId, replyId, content, actor, canModerate = false, now = new Date()) {
+    getReply(threadId, replyId) {
+      const reply = replies.get(threadId)?.get(replyId);
+      return reply ? copy(reply) : null;
+    },
+
+    updateReply(threadId, replyId, content, actor, _canModerate = false, now = new Date()) {
       const reply = replies.get(threadId)?.get(replyId);
       if (!reply) return null;
-      if (actor.id !== reply.authorId && !canModerate) {
+      if (actor.id !== reply.authorId) {
         const error = new Error("只能修改自己的回覆。");
         error.statusCode = 403;
         throw error;

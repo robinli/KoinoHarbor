@@ -470,6 +470,30 @@ test("discussion status, thread, reply, bookmark and search API flow", async (co
     body: JSON.stringify({ content: "已補上重現步驟" }),
   });
   assert.equal(replyResponse.status, 201);
+  const { reply } = await replyResponse.json();
+
+  const nestedReplyResponse = await fetch(`${testServer.baseUrl}/api/threads/${thread.id}/replies`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Cookie: adminLogin.cookie },
+    body: JSON.stringify({ content: "已收到重現步驟", parentReplyId: reply.id }),
+  });
+  const nestedReplyPayload = await nestedReplyResponse.json();
+  assert.equal(nestedReplyResponse.status, 201);
+  assert.equal(nestedReplyPayload.reply.parentReplyId, reply.id);
+
+  const adminCannotEditMemberReply = await fetch(`${testServer.baseUrl}/api/threads/${thread.id}/replies/${reply.id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", Cookie: adminLogin.cookie },
+    body: JSON.stringify({ content: "管理員不應修改此回覆" }),
+  });
+  assert.equal(adminCannotEditMemberReply.status, 403);
+
+  const authorEditReply = await fetch(`${testServer.baseUrl}/api/threads/${thread.id}/replies/${reply.id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", Cookie: memberLogin.cookie },
+    body: JSON.stringify({ content: "已補上完整重現步驟" }),
+  });
+  assert.equal(authorEditReply.status, 200);
 
   const bookmarkResponse = await fetch(`${testServer.baseUrl}/api/threads/${thread.id}/bookmark`, {
     method: "PUT",
@@ -538,6 +562,35 @@ test("discussion status, thread, reply, bookmark and search API flow", async (co
   assert.equal(downloadResponse.status, 200);
   assert.deepEqual(Buffer.from(await downloadResponse.arrayBuffer()), originalAttachment);
   assert.match(downloadResponse.headers.get("content-disposition"), /attachment/);
+
+  const replyAttachmentResponse = await fetch(`${testServer.baseUrl}/api/threads/${thread.id}/attachments`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Cookie: memberLogin.cookie },
+    body: JSON.stringify({
+      contentBase64: originalAttachment.toString("base64"),
+      fileName: "回覆附件.pdf",
+      mimeType: "application/pdf",
+      replyId: reply.id,
+    }),
+  });
+  const replyAttachmentPayload = await replyAttachmentResponse.json();
+  assert.equal(replyAttachmentResponse.status, 201);
+
+  const adminCannotDeleteReplyAttachment = await fetch(`${testServer.baseUrl}/api/attachments/${replyAttachmentPayload.attachment.id}`, {
+    method: "DELETE",
+    headers: { Cookie: adminLogin.cookie },
+  });
+  assert.equal(adminCannotDeleteReplyAttachment.status, 403);
+
+  const deleteReplyAttachmentResponse = await fetch(`${testServer.baseUrl}/api/attachments/${replyAttachmentPayload.attachment.id}`, {
+    method: "DELETE",
+    headers: { Cookie: memberLogin.cookie },
+  });
+  assert.equal(deleteReplyAttachmentResponse.status, 200);
+  const deletedAttachmentDownload = await fetch(`${testServer.baseUrl}/api/attachments/${replyAttachmentPayload.attachment.id}`, {
+    headers: { Cookie: memberLogin.cookie },
+  });
+  assert.equal(deletedAttachmentDownload.status, 404);
 });
 
 test("guest cannot access a thread outside explicit Space membership", async (context) => {

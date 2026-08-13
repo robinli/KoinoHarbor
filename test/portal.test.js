@@ -18,8 +18,9 @@ test("portal shell exposes the ordered account, Space, bookmark and admin entry 
     'data-portal-view="spaces"',
     'data-portal-view="admin"',
     'id="dashboard-space-filter"',
-    'id="create-thread-dialog"',
-    'id="thread-edit-dialog"',
+    'id="thread-form"',
+    'data-open-thread-form',
+    'data-cancel-thread-form',
     'id="status-edit-dialog"',
     'id="profile-dialog"',
     'id="portal-profile-button"',
@@ -30,7 +31,9 @@ test("portal shell exposes the ordered account, Space, bookmark and admin entry 
     assert.match(html, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }
 
-  assert.doesNotMatch(html, /class="primary-action"[^>]*data-open-thread-dialog/);
+  assert.match(html, /id="thread-form"[^>]*hidden[\s\S]*?name="attachments"[^>]*multiple/);
+  assert.match(html, /id="thread-form"[\s\S]*?class="discussion-toolbar"/);
+  assert.doesNotMatch(html, /id="create-thread-dialog"|id="thread-edit-dialog"|data-open-thread-dialog/);
   assert.match(html, /id="portal-admin-nav"[^>]*data-portal-target="admin"[^>]*hidden[^>]*>[\s\S]*?bi-gear-fill[\s\S]*?<\/button>/);
   assert.match(html, /id="portal-profile-button"[\s\S]*?登入者[\s\S]*?id="portal-user-name"/);
   assert.match(html, /id="portal-all-spaces"[^>]*>[\s\S]*?bi-grid-3x3-gap-fill[\s\S]*?全部工作區[\s\S]*?<\/button>/);
@@ -72,7 +75,7 @@ test("portal client aggregates accessible threads and disables creation without 
   assert.match(script, /method: "DELETE"/);
   assert.match(script, /className = "delete-status-button"/);
   assert.match(script, /className = "thread-header-actions"/);
-  assert.match(script, /replyAction\.addEventListener\("click", \(\) => replyInput\.focus\(\)\)/);
+  assert.match(script, /replyAction\.addEventListener\("click", \(\) => \{\s*topComposer\.element\.hidden = false;\s*topComposer\.focus\(\)/);
   assert.match(script, /className = "thread-action-menu"/);
   assert.match(script, /actionMenuToggle\.setAttribute\("aria-haspopup", "menu"\)/);
   assert.match(script, /actionMenuToggle\.setAttribute\("aria-expanded", String\(actionMenu\.open\)\)/);
@@ -80,7 +83,13 @@ test("portal client aggregates accessible threads and disables creation without 
   assert.match(script, /addMenuItem\("加入書籤", "bi-bookmark"/);
   assert.match(script, /thread\.pinned \? "取消置頂" : "置頂"/);
   assert.match(script, /thread\.archived \? "取消封存" : "封存"/);
+  assert.match(script, /parentReplyId: reply\.id/);
+  assert.match(script, /const canEditReply = signedInUser\.id === reply\.authorId/);
+  assert.match(script, /className = "message-edit-form thread-inline-editor"/);
+  assert.match(script, /fetch\(`\/api\/attachments\/\$\{encodeURIComponent\(attachmentId\)\}`,[\s\S]*?method: "DELETE"/);
+  assert.match(script, /await uploadAttachments\(payload\.thread\.id, threadCreationFilePicker\.files\)/);
   assert.doesNotMatch(script, /actions\.className = "thread-actions"/);
+  assert.doesNotMatch(script, /className = "reply-form"|className = "attachment-form"/);
 });
 
 test("portal styles preserve hidden state, keyboard focus and mobile single-column layout", async () => {
@@ -97,6 +106,9 @@ test("portal styles preserve hidden state, keyboard focus and mobile single-colu
   assert.doesNotMatch(modernStyles, /├─|└─|🔖|↪|▦/);
   assert.match(modernStyles, /\.thread-header-actions\s*\{/);
   assert.match(modernStyles, /\.thread-menu-list\s*\{[^}]*position:\s*absolute/s);
+  assert.match(modernStyles, /\.message-composer\s*,\s*\.message-edit-form\s*\{/);
+  assert.match(modernStyles, /\.reply-children\s*\{/);
+  assert.match(modernStyles, /\.inline-thread-form\s*\{/);
 });
 
 test("Firebase portal reads avoid unnecessary composite-index dependencies at POC scale", async () => {
