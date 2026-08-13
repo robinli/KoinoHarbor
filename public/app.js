@@ -186,6 +186,56 @@ function updateDiscussionHeading(space = null) {
   discussionTitle.textContent = space?.name ?? "全部工作區";
 }
 
+function formatRelativeTime(value) {
+  const timestamp = new Date(value).getTime();
+  if (!Number.isFinite(timestamp)) return "unknown time";
+
+  const elapsedSeconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1_000));
+  const units = [
+    [31_536_000, "yr"],
+    [2_592_000, "mo"],
+    [86_400, "day"],
+    [3_600, "hr"],
+    [60, "min"],
+  ];
+  const unit = units.find(([seconds]) => elapsedSeconds >= seconds);
+  if (!unit) return "just now";
+
+  const [seconds, label] = unit;
+  const amount = Math.floor(elapsedSeconds / seconds);
+  return `${amount} ${label}${label === "day" && amount !== 1 ? "s" : ""} before`;
+}
+
+function formatFullDateTime(value) {
+  const timestamp = new Date(value);
+  if (!Number.isFinite(timestamp.getTime())) return "Unknown time";
+
+  return new Intl.DateTimeFormat("zh-TW", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(timestamp);
+}
+
+function createAuthorMetadata(message) {
+  const authorName = message.authorDisplayName ?? "Unknown user";
+  const meta = document.createElement("span");
+  meta.className = "message-author-meta";
+  const author = document.createElement("span");
+  author.textContent = `${authorName} / `;
+  const timestamp = document.createElement("time");
+  timestamp.dateTime = message.updatedAt ?? "";
+  timestamp.title = formatFullDateTime(message.updatedAt);
+  timestamp.textContent = formatRelativeTime(message.updatedAt);
+  meta.append(author, timestamp);
+  if (message.createdAt && message.updatedAt && new Date(message.updatedAt).getTime() > new Date(message.createdAt).getTime()) {
+    const edited = document.createElement("span");
+    edited.className = "message-edited";
+    edited.textContent = " (edited)";
+    meta.append(edited);
+  }
+  return meta;
+}
+
 async function showWorkspaceThreads(spaceId = null) {
   const selectedSpace = availableSpaces.find((space) => !space.archived && space.id === spaceId) ?? null;
   selectedThreadSpaceId = selectedSpace?.id ?? null;
@@ -904,6 +954,7 @@ function renderReplyTree(thread, replies, attachments, container, onRefresh) {
     item.className = "reply-item";
     const message = document.createElement("div");
     message.className = "reply-message";
+    const authorMeta = createAuthorMetadata(reply);
     const content = document.createElement("p");
     content.className = "reply-content";
     content.textContent = reply.content;
@@ -1001,7 +1052,7 @@ function renderReplyTree(thread, replies, attachments, container, onRefresh) {
         textarea.focus();
       });
     }
-    message.append(content, attachmentList, actions);
+    message.append(authorMeta, content, attachmentList, actions);
     const composerHost = document.createElement("div");
     composerHost.className = "nested-composer-host";
     replyButton.addEventListener("click", () => {
@@ -1039,8 +1090,11 @@ function createThreadCard(thread) {
   header.className = "thread-card-header";
   const titleGroup = document.createElement("div");
   titleGroup.className = "thread-title-group";
+  const titleLine = document.createElement("div");
+  titleLine.className = "thread-title-line";
   const title = document.createElement("h3");
   title.textContent = thread.title;
+  titleLine.append(title, createAuthorMetadata(thread));
   const status = availableStatuses.find((item) => item.id === thread.statusId);
   const meta = document.createElement("span");
   meta.className = "thread-meta";
@@ -1049,7 +1103,7 @@ function createThreadCard(thread) {
     ...(thread.bookmarked ? ["已加入書籤"] : []),
     ...(thread.pinned ? ["置頂"] : []),
   ].join(" · ");
-  titleGroup.append(title, meta);
+  titleGroup.append(titleLine, meta);
 
   const headerActions = document.createElement("div");
   headerActions.className = "thread-header-actions";
