@@ -1,0 +1,23 @@
+[
+  {
+    "name": "keep-production-current",
+    "action": {
+      "type": "Keep"
+    },
+    "condition": {
+      "tagState": "tagged",
+      "tagPrefixes": [
+        "production-current"
+      ]
+    }
+  },
+  {
+    "name": "keep-five-most-recent-versions",
+    "action": {
+      "type": "Keep"
+    },
+    "mostRecentVersions": {
+      "keepCount": 5
+    }
+  }
+]

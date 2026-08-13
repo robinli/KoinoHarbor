@@ -37,11 +37,15 @@ test("portal shell exposes the ordered account, Space, bookmark and admin entry 
   assert.match(html, /id="portal-admin-nav"[^>]*data-portal-target="admin"[^>]*hidden[^>]*>[\s\S]*?bi-gear-fill[\s\S]*?<\/button>/);
   assert.match(html, /id="portal-profile-button"[\s\S]*?登入者[\s\S]*?id="portal-user-name"/);
   assert.match(html, /id="portal-all-spaces"[^>]*>[\s\S]*?bi-grid-3x3-gap-fill[\s\S]*?全部工作區[\s\S]*?<\/button>/);
+  assert.match(html, /id="spaces-title"[^>]*>工作區管理<\/h2>/);
+  assert.match(html, /id="space-edit-dialog"[\s\S]*?name="archived"[\s\S]*?啟用[\s\S]*?封存[\s\S]*?儲存變更/);
+  assert.doesNotMatch(html, /id="space-edit-dialog"[\s\S]*?<p class="eyebrow">Workspace<\/p>/);
+  assert.doesNotMatch(html, /Workspace overview|顯示所有可存取工作區的資訊。/);
   assert.doesNotMatch(html, /id="portal-all-spaces"[^>]*data-portal-target="spaces"/);
   assert.match(html, /class="sidebar-brand"[\s\S]*?id="portal-profile-button"[\s\S]*?id="portal-all-spaces"[\s\S]*?id="portal-space-list"[\s\S]*?id="portal-bookmarks"[\s\S]*?id="portal-logout-button"/);
   assert.match(html, />工作區管理<\/button>/);
   assert.doesNotMatch(html, />[^<]*\bSpace\b[^<]*</);
-  assert.match(html, /使用者管理[\s\S]*使用者與角色[\s\S]*新增使用者/);
+  assert.match(html, /後台管理[\s\S]*使用者與角色[\s\S]*新增使用者/);
   assert.match(html, /id="user-create-form"/);
   assert.match(html, /id="forgot-password-form"/);
   assert.match(html, /忘記密碼？/);
@@ -57,6 +61,10 @@ test("portal client aggregates accessible threads and disables creation without 
   assert.match(script, /portalAdminNav\.hidden = user\.role !== "admin"/);
   assert.match(script, /fetch\("\/api\/auth\/me", \{\s*method: "PATCH"/);
   assert.match(script, /function showSpaceOverview\(spaceId = null\)/);
+  assert.match(script, /function openSpaceEditDialog\(space\)/);
+  assert.match(script, /editButton\.textContent = "編輯工作區"/);
+  assert.match(script, /spaceEditDialog\.showModal\(\)/);
+  assert.match(script, /archived: formData\.get\("archived"\) === "true"/);
   assert.match(script, /async function showWorkspaceThreads\(spaceId = null\)/);
   assert.match(script, /threadSpaceFilter\.value = selectedThreadSpaceId \?\? ""/);
   assert.match(script, /button\.dataset\.spaceId = space\.id/);

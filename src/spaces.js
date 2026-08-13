@@ -109,6 +109,14 @@ export function createInMemorySpaceStore() {
         space.description = changes.description.trim();
       }
 
+      if (changes.type !== undefined) {
+        if (!VALID_SPACE_TYPES.has(changes.type)) {
+          throw validationError("工作區類型必須是 department 或 project。");
+        }
+
+        space.type = changes.type;
+      }
+
       if (changes.archived !== undefined) {
         if (typeof changes.archived !== "boolean") {
           throw validationError("archived 必須是布林值。");

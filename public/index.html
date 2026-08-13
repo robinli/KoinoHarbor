@@ -109,9 +109,7 @@
 
             <section class="spaces-panel portal-view" id="spaces-panel" data-portal-view="spaces" aria-labelledby="spaces-title" hidden>
               <div class="section-heading compact-heading">
-                <p class="eyebrow" id="spaces-eyebrow">Workspace overview</p>
-                <h2 id="spaces-title">工作區</h2>
-                <p id="spaces-description">顯示所有可存取工作區的資訊。</p>
+                <h2 id="spaces-title">工作區管理</h2>
               </div>
               <form class="space-form" id="space-form" hidden>
                 <label>名稱<input name="name" required maxlength="80" placeholder="例如：ERP 導入專案"></label>
@@ -152,7 +150,7 @@
 
             <section class="admin-panel portal-view" id="admin-panel" data-portal-view="admin" hidden>
               <div class="section-heading compact-heading">
-                <h2>管理後台</h2>
+                <h2>後台管理</h2>
               </div>
               <section class="user-admin" id="user-admin" aria-labelledby="user-admin-title" hidden>
                 <div class="section-heading compact-heading"><h3 id="user-admin-title">使用者與角色</h3></div>
@@ -231,6 +229,25 @@
             <input name="passwordConfirmation" type="password" minlength="8" autocomplete="new-password" placeholder="再次輸入新密碼">
           </label>
           <p class="form-message" id="profile-message" role="status"></p>
+          <div class="dialog-actions">
+            <button class="secondary-button" type="button" data-close-dialog>取消</button>
+            <button type="submit">儲存變更</button>
+          </div>
+        </form>
+      </dialog>
+
+      <dialog class="edit-dialog" id="space-edit-dialog">
+        <form class="edit-dialog-form" id="space-edit-form">
+          <div class="edit-dialog-heading">
+            <div><h2>編輯工作區</h2></div>
+            <button class="dialog-close" type="button" data-close-dialog aria-label="關閉">×</button>
+          </div>
+          <input name="spaceId" type="hidden">
+          <label>名稱<input name="name" required maxlength="80"></label>
+          <label>類型<select name="type"><option value="department">Department</option><option value="project">Project</option></select></label>
+          <label>說明<input name="description" maxlength="200"></label>
+          <label>狀態<select name="archived"><option value="false">啟用</option><option value="true">封存</option></select></label>
+          <p class="form-message" id="space-edit-message" role="alert"></p>
           <div class="dialog-actions">
             <button class="secondary-button" type="button" data-close-dialog>取消</button>
             <button type="submit">儲存變更</button>
