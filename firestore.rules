@@ -68,6 +68,14 @@ service cloud.firestore {
       allow read: if activeUser() && (request.auth.uid == userId || isAdmin());
       allow create, delete: if isAdmin();
       allow update: if isAdmin() && validAuditOnUpdate();
+
+      match /unreadMessages/{messageId} {
+        allow read: if activeUser() && request.auth.uid == userId && canAccessSpace(resource.data.spaceId);
+        allow create: if activeUser() && request.auth.uid == userId && canAccessSpace(request.resource.data.spaceId);
+        allow update: if activeUser() && request.auth.uid == userId
+          && canAccessSpace(resource.data.spaceId)
+          && request.resource.data.userId == request.auth.uid;
+      }
     }
 
     match /spaces/{spaceId} {

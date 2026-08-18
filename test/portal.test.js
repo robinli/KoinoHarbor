@@ -72,6 +72,11 @@ test("portal client aggregates accessible threads and disables creation without 
   assert.match(script, /threadSpaceFilter\.value = selectedThreadSpaceId \?\? ""/);
   assert.match(script, /button\.dataset\.spaceId = space\.id/);
   assert.match(script, /prefix\.textContent = "#"/);
+  assert.match(script, /label\.className = "workspace-label"/);
+  assert.match(script, /async function loadUnreadSummary\(\)/);
+  assert.match(script, /fetch\("\/api\/unread-summary"/);
+  assert.match(script, /workspace-unread-dot/);
+  assert.match(script, /unreadMessageKeys = new Set/);
   assert.match(script, /button\.classList\.toggle\("is-child-space-link"/);
   assert.match(script, /function orderedSpaces\(spaces\)/);
   assert.match(script, /left\.sortOrder \?\? 0\) - \(right\.sortOrder \?\? 0\) \|\| left\.name\.localeCompare\(right\.name\)/);
@@ -102,6 +107,16 @@ test("portal client aggregates accessible threads and disables creation without 
   assert.match(script, /actionMenuToggle\.setAttribute\("aria-haspopup", "menu"\)/);
   assert.match(script, /actionMenuToggle\.setAttribute\("aria-expanded", String\(actionMenu\.open\)\)/);
   assert.match(script, /addMenuItem\("編輯", "bi-pencil"/);
+  assert.match(script, /addMenuItem\("設定未讀取", "bi-envelope"/);
+  assert.match(script, /className = "reply-action-menu"/);
+  assert.match(script, /unreadButton\.textContent = "設定未讀取"/);
+  assert.match(script, /fetch\("\/api\/unread\/read"/);
+  assert.match(script, /new IntersectionObserver/);
+  assert.match(script, /threshold: 0\.25/);
+  assert.match(script, /function observeUnreadMessage\(/);
+  assert.match(script, /function showUnreadMessageMarker\(/);
+  assert.match(script, /showUnreadMessageMarker\(messageType, messageId\)/);
+  assert.doesNotMatch(script, /訊息已設定為未讀。/);
   assert.match(script, /addMenuItem\("加入書籤", "bi-bookmark"/);
   assert.match(script, /thread\.pinned \? "取消置頂" : "置頂"/);
   assert.match(script, /thread\.archived \? "取消封存" : "封存"/);
@@ -138,6 +153,9 @@ test("portal styles preserve hidden state, keyboard focus and mobile single-colu
   assert.doesNotMatch(modernStyles, /├─|└─|🔖|↪|▦/);
   assert.match(modernStyles, /\.thread-header-actions\s*\{/);
   assert.match(modernStyles, /\.thread-menu-list\s*\{[^}]*position:\s*absolute/s);
+  assert.match(modernStyles, /\.thread-menu-item\.btn\s*\{[^}]*display:\s*flex[^}]*gap:\s*4px/s);
+  assert.match(modernStyles, /\.thread-header-button\.btn,[\s\S]*?gap:\s*4px/s);
+  assert.match(modernStyles, /\.attachment-identity\s*\{[^}]*gap:\s*4px/s);
   assert.match(modernStyles, /\.message-composer\s*,\s*\.message-edit-form\s*\{/);
   assert.match(modernStyles, /\.reply-children\s*\{/);
   assert.match(modernStyles, /\.thread-title-line\s*\{/);
@@ -147,6 +165,10 @@ test("portal styles preserve hidden state, keyboard focus and mobile single-colu
   assert.match(modernStyles, /\.space-item\.is-child-space\s*\{/);
   assert.match(modernStyles, /margin-left: clamp\(18px, 4vw, 56px\)/);
   assert.match(modernStyles, /\.portal-space-links\s*\{[^}]*padding:\s*0;/s);
+  assert.match(modernStyles, /\.workspace-label\s*\{[^}]*font-weight:\s*400/s);
+  assert.match(modernStyles, /\.workspace-unread-dot\s*\{/);
+  assert.match(modernStyles, /\.message-unread-dot\s*\{/);
+  assert.match(modernStyles, /\.reply-action-menu\s*\{/);
   assert.match(modernStyles, /\.portal-nav-secondary\s*\{[^}]*border-top:\s*0;/s);
 });
 

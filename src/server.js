@@ -216,6 +216,52 @@ export function createApplicationServer(options = {}) {
     }));
   }
 
+  async function unreadRecipientIds(spaceId, authorId) {
+    const users = await authService.listUsers();
+    const recipients = await Promise.all(users
+      .filter((user) => user.active && user.id !== authorId)
+      .map(async (user) => (await spaceStore.canAccess(spaceId, user) ? user.id : null)));
+    return recipients.filter(Boolean);
+  }
+
+  function unreadMessage(thread, messageType, messageId) {
+    return { messageId, messageType, spaceId: thread.spaceId, threadId: thread.id };
+  }
+
+  async function resolveUnreadMessage(input, currentUser) {
+    if (!input || !["thread", "reply"].includes(input.messageType) || typeof input.messageId !== "string") {
+      const error = new Error("未讀訊息格式不正確。");
+      error.statusCode = 400;
+      throw error;
+    }
+    const threadId = input.messageType === "thread" ? input.messageId : input.threadId;
+    if (typeof threadId !== "string" || !threadId) {
+      const error = new Error("回覆必須提供所屬討論串。");
+      error.statusCode = 400;
+      throw error;
+    }
+    const thread = await discussionStore.getThread(threadId);
+    if (!thread || thread.deleted) {
+      const error = new Error("找不到指定的訊息。");
+      error.statusCode = 404;
+      throw error;
+    }
+    if (!await spaceStore.canAccess(thread.spaceId, currentUser)) {
+      const error = new Error("沒有存取此討論串的權限。");
+      error.statusCode = 403;
+      throw error;
+    }
+    if (input.messageType === "reply") {
+      const reply = await discussionStore.getReply(thread.id, input.messageId);
+      if (!reply || reply.deleted) {
+        const error = new Error("找不到指定的回覆。");
+        error.statusCode = 404;
+        throw error;
+      }
+    }
+    return unreadMessage(thread, input.messageType, input.messageId);
+  }
+
   return http.createServer(async (request, response) => {
     try {
       const requestUrl = new URL(request.url ?? "/", "http://localhost");
@@ -621,6 +667,44 @@ export function createApplicationServer(options = {}) {
         return;
       }
 
+      if (request.method === "GET" && requestUrl.pathname === "/api/unread-summary") {
+        const currentUser = requireUser(request, response, authService);
+        if (!currentUser) return;
+        const allowedSpaceIds = await accessibleSpaceIds(currentUser);
+        const [unreadBySpace, unreadMessages] = await Promise.all([
+          discussionStore.listUnreadSummary(currentUser.id, allowedSpaceIds),
+          discussionStore.listUnreadMessages(currentUser.id, allowedSpaceIds),
+        ]);
+        sendJson(response, 200, {
+          unreadBySpace,
+          unreadMessages,
+        });
+        return;
+      }
+
+      if (request.method === "POST" && requestUrl.pathname === "/api/unread/read") {
+        const currentUser = requireUser(request, response, authService);
+        if (!currentUser) return;
+        const body = await readJsonBody(request);
+        if (!Array.isArray(body.messages)) {
+          sendJson(response, 400, { error: "invalid_request", message: "messages 必須是陣列。" });
+          return;
+        }
+        const messages = await Promise.all(body.messages.map((message) => resolveUnreadMessage(message, currentUser)));
+        await discussionStore.setMessagesRead(currentUser.id, messages);
+        sendJson(response, 200, { status: "read" });
+        return;
+      }
+
+      if (request.method === "PUT" && requestUrl.pathname === "/api/unread") {
+        const currentUser = requireUser(request, response, authService);
+        if (!currentUser) return;
+        const message = await resolveUnreadMessage(await readJsonBody(request), currentUser);
+        await discussionStore.setMessageUnread(currentUser.id, message);
+        sendJson(response, 200, { status: "unread" });
+        return;
+      }
+
       if (request.method === "POST" && requestUrl.pathname === "/api/threads") {
         const currentUser = requireUser(request, response, authService);
         if (!currentUser) return;
@@ -630,6 +714,10 @@ export function createApplicationServer(options = {}) {
           return;
         }
         const thread = await discussionStore.createThread(body, currentUser);
+        await discussionStore.createUnreadMessages(
+          unreadMessage(thread, "thread", thread.id),
+          await unreadRecipientIds(thread.spaceId, currentUser.id),
+        );
         sendJson(response, 201, { thread });
         return;
       }
@@ -692,6 +780,10 @@ export function createApplicationServer(options = {}) {
           return;
         }
         const reply = await discussionStore.createReply(threadId, await readJsonBody(request), currentUser);
+        await discussionStore.createUnreadMessages(
+          unreadMessage(thread, "reply", reply.id),
+          await unreadRecipientIds(thread.spaceId, currentUser.id),
+        );
         sendJson(response, 201, { reply });
         return;
       }
