@@ -1262,7 +1262,7 @@ function renderReplyTree(thread, replies, attachments, container, onRefresh) {
       composerHost.append(composer.element);
       composer.focus();
     });
-    item.append(message, composerHost);
+    item.append(message);
     const childReplies = (childrenByParent.get(reply.id) ?? []).filter((child) => !ancestry.has(child.id));
     if (childReplies.length) {
       const childList = document.createElement("ul");
@@ -1271,6 +1271,7 @@ function renderReplyTree(thread, replies, attachments, container, onRefresh) {
       childList.append(...childReplies.map((child) => createReplyItem(child, nextAncestry)));
       item.append(childList);
     }
+    item.append(composerHost);
     return item;
   };
 
