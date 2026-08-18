@@ -148,6 +148,10 @@ export function createFirestoreDiscussionStore(app) {
   const statuses = firestore.collection("threadStatuses");
   const threads = firestore.collection("threads");
 
+  function unreadReference(userId, messageType, messageId) {
+    return firestore.collection("users").doc(userId).collection("unreadMessages").doc(`${messageType}_${messageId}`);
+  }
+
   return Object.freeze({
     async createStatus(input, actor) {
       const reference = statuses.doc();
@@ -286,6 +290,52 @@ export function createFirestoreDiscussionStore(app) {
         if (text.includes(needle)) results.push(thread);
       }
       return results;
+    },
+    async createUnreadMessages(message, userIds) {
+      if (!userIds.length) return;
+      const batch = firestore.batch();
+      const now = serverTimestamp();
+      for (const userId of userIds) {
+        batch.set(unreadReference(userId, message.messageType, message.messageId), {
+          ...message,
+          createdAt: now,
+          readAt: null,
+          updatedAt: now,
+          userId,
+        });
+      }
+      await batch.commit();
+    },
+    async listUnreadSummary(userId, allowedSpaceIds) {
+      const snapshot = await firestore.collection("users").doc(userId).collection("unreadMessages").where("readAt", "==", null).get();
+      const allowedSpaces = new Set(allowedSpaceIds);
+      const counts = {};
+      for (const document of snapshot.docs) {
+        const message = plain(document);
+        if (allowedSpaces.has(message.spaceId)) counts[message.spaceId] = (counts[message.spaceId] ?? 0) + 1;
+      }
+      return counts;
+    },
+    async listUnreadMessages(userId, allowedSpaceIds) {
+      const snapshot = await firestore.collection("users").doc(userId).collection("unreadMessages").where("readAt", "==", null).get();
+      const allowedSpaces = new Set(allowedSpaceIds);
+      return snapshot.docs.map(plain).filter((message) => allowedSpaces.has(message.spaceId));
+    },
+    async setMessagesRead(userId, messages) {
+      if (!messages.length) return;
+      const batch = firestore.batch();
+      for (const message of messages) batch.set(unreadReference(userId, message.messageType, message.messageId), {
+        ...message,
+        readAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        userId,
+      }, { merge: true });
+      await batch.commit();
+    },
+    async setMessageUnread(userId, message) {
+      const reference = unreadReference(userId, message.messageType, message.messageId);
+      const now = serverTimestamp();
+      await reference.set({ ...message, createdAt: now, readAt: null, updatedAt: now, userId }, { merge: true });
     },
   });
 }

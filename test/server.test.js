@@ -658,6 +658,108 @@ test("discussion status, thread, reply, bookmark and search API flow", async (co
   assert.equal(deletedAttachmentDownload.status, 404);
 });
 
+test("unread messages notify effective workspace members and support read and unread state", async (context) => {
+  const testServer = await startTestServer({
+    config: {
+      developmentUsers: [
+        { email: "admin@example.test", password: "CorrectPassword!", role: "admin" },
+        { email: "member@example.test", password: "MemberPassword!", role: "member" },
+        { email: "guest@example.test", password: "GuestPassword!", role: "guest" },
+        { active: false, email: "inactive@example.test", password: "InactivePassword!", role: "member" },
+      ],
+    },
+  });
+  context.after(testServer.close);
+  const adminLogin = await login(testServer.baseUrl, "admin@example.test", "CorrectPassword!");
+  const memberLogin = await login(testServer.baseUrl, "member@example.test", "MemberPassword!");
+  const guestLogin = await login(testServer.baseUrl, "guest@example.test", "GuestPassword!");
+  const usersResponse = await fetch(`${testServer.baseUrl}/api/users`, { headers: { Cookie: adminLogin.cookie } });
+  const { users } = await usersResponse.json();
+  const member = users.find((user) => user.email === "member@example.test");
+  const guest = users.find((user) => user.email === "guest@example.test");
+  const inactive = users.find((user) => user.email === "inactive@example.test");
+
+  const parentResponse = await fetch(`${testServer.baseUrl}/api/spaces`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Cookie: adminLogin.cookie },
+    body: JSON.stringify({ name: "父工作區" }),
+  });
+  const { space: parent } = await parentResponse.json();
+  const childResponse = await fetch(`${testServer.baseUrl}/api/spaces`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Cookie: adminLogin.cookie },
+    body: JSON.stringify({ name: "子工作區", parentId: parent.id }),
+  });
+  const { space: child } = await childResponse.json();
+  for (const [spaceId, userId] of [[parent.id, member.id], [child.id, guest.id], [child.id, inactive.id]]) {
+    const membershipResponse = await fetch(`${testServer.baseUrl}/api/spaces/${spaceId}/members`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: adminLogin.cookie },
+      body: JSON.stringify({ role: "member", userId }),
+    });
+    assert.equal(membershipResponse.status, 201);
+  }
+
+  const threadResponse = await fetch(`${testServer.baseUrl}/api/threads`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Cookie: guestLogin.cookie },
+    body: JSON.stringify({ content: "請檢視未讀提醒", spaceId: child.id, title: "未讀測試" }),
+  });
+  const { thread } = await threadResponse.json();
+  assert.equal(threadResponse.status, 201);
+
+  for (const loginResult of [adminLogin, memberLogin]) {
+    const summaryResponse = await fetch(`${testServer.baseUrl}/api/unread-summary`, { headers: { Cookie: loginResult.cookie } });
+    const summaryPayload = await summaryResponse.json();
+    assert.equal(summaryPayload.unreadBySpace[child.id], 1);
+    assert.deepEqual(summaryPayload.unreadMessages.map((message) => [message.messageType, message.messageId]), [["thread", thread.id]]);
+  }
+  const authorSummaryResponse = await fetch(`${testServer.baseUrl}/api/unread-summary`, { headers: { Cookie: guestLogin.cookie } });
+  assert.deepEqual((await authorSummaryResponse.json()).unreadBySpace, {});
+  const activateInactiveResponse = await fetch(`${testServer.baseUrl}/api/users/${inactive.id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", Cookie: adminLogin.cookie },
+    body: JSON.stringify({ active: true }),
+  });
+  assert.equal(activateInactiveResponse.status, 200);
+  const inactiveLogin = await login(testServer.baseUrl, "inactive@example.test", "InactivePassword!");
+  const inactiveSummary = await (await fetch(`${testServer.baseUrl}/api/unread-summary`, { headers: { Cookie: inactiveLogin.cookie } })).json();
+  assert.deepEqual(inactiveSummary.unreadBySpace, {});
+
+  const replyResponse = await fetch(`${testServer.baseUrl}/api/threads/${thread.id}/replies`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Cookie: adminLogin.cookie },
+    body: JSON.stringify({ content: "這是未讀回覆" }),
+  });
+  const { reply } = await replyResponse.json();
+  assert.equal(replyResponse.status, 201);
+  const memberReplySummary = await (await fetch(`${testServer.baseUrl}/api/unread-summary`, { headers: { Cookie: memberLogin.cookie } })).json();
+  assert.equal(memberReplySummary.unreadBySpace[child.id], 2);
+  const guestReplySummary = await (await fetch(`${testServer.baseUrl}/api/unread-summary`, { headers: { Cookie: guestLogin.cookie } })).json();
+  assert.equal(guestReplySummary.unreadBySpace[child.id], 1);
+
+  const readResponse = await fetch(`${testServer.baseUrl}/api/unread/read`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Cookie: memberLogin.cookie },
+    body: JSON.stringify({ messages: [
+      { messageId: thread.id, messageType: "thread", threadId: thread.id },
+      { messageId: reply.id, messageType: "reply", threadId: thread.id },
+    ] }),
+  });
+  assert.equal(readResponse.status, 200);
+  const readSummary = await (await fetch(`${testServer.baseUrl}/api/unread-summary`, { headers: { Cookie: memberLogin.cookie } })).json();
+  assert.deepEqual(readSummary.unreadBySpace, {});
+
+  const unreadResponse = await fetch(`${testServer.baseUrl}/api/unread`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", Cookie: memberLogin.cookie },
+    body: JSON.stringify({ messageId: thread.id, messageType: "thread", threadId: thread.id }),
+  });
+  assert.equal(unreadResponse.status, 200);
+  const unreadSummary = await (await fetch(`${testServer.baseUrl}/api/unread-summary`, { headers: { Cookie: memberLogin.cookie } })).json();
+  assert.equal(unreadSummary.unreadBySpace[child.id], 1);
+});
+
 test("guest cannot access a thread outside explicit Space membership", async (context) => {
   const testServer = await startTestServer();
   context.after(testServer.close);

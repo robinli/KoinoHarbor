@@ -61,6 +61,12 @@ let selectedSidebarSpaceId = null;
 let selectedThreadSpaceId = null;
 let threadSourceUrl = null;
 let threadEmptyMessage = "目前沒有符合條件的討論串。";
+let unreadBySpace = {};
+let unreadMessages = [];
+let unreadMessageKeys = new Set();
+const unreadMessageTargets = new WeakMap();
+const pendingUnreadReads = new Map();
+let unreadReadTimer = null;
 const messageTimers = new WeakMap();
 
 function setSystemMessage(messageElement, message, type = "success") {
@@ -133,14 +139,14 @@ const bootstrapObserver = new MutationObserver((mutations) => {
 bootstrapObserver.observe(document.body, { childList: true, subtree: true });
 
 document.addEventListener("click", (event) => {
-  for (const menu of document.querySelectorAll(".thread-action-menu[open]")) {
+  for (const menu of document.querySelectorAll(".thread-action-menu[open], .reply-action-menu[open]")) {
     if (!menu.contains(event.target)) menu.removeAttribute("open");
   }
 });
 
 document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;
-  const menu = document.querySelector(".thread-action-menu[open]");
+  const menu = document.querySelector(".thread-action-menu[open], .reply-action-menu[open]");
   if (!menu) return;
   menu.removeAttribute("open");
   menu.querySelector("summary")?.focus();
@@ -167,6 +173,13 @@ function resetPortalData() {
   selectedThreadSpaceId = null;
   threadSourceUrl = null;
   threadEmptyMessage = "目前沒有符合條件的討論串。";
+  unreadBySpace = {};
+  unreadMessages = [];
+  unreadMessageKeys = new Set();
+  pendingUnreadReads.clear();
+  if (unreadReadTimer) window.clearTimeout(unreadReadTimer);
+  unreadReadTimer = null;
+  unreadVisibilityObserver.disconnect();
 }
 
 function showPortalView(viewName) {
@@ -250,6 +263,69 @@ function createAuthorMetadata(message) {
   return meta;
 }
 
+function unreadMessageKey(messageType, messageId) {
+  return `${messageType}:${messageId}`;
+}
+
+function createUnreadDot() {
+  const dot = document.createElement("span");
+  dot.className = "message-unread-dot";
+  dot.setAttribute("aria-label", "未讀取");
+  dot.setAttribute("role", "img");
+  return dot;
+}
+
+function queueVisibleUnreadMessage(message) {
+  const key = unreadMessageKey(message.messageType, message.messageId);
+  pendingUnreadReads.set(key, message);
+  if (unreadReadTimer) return;
+  unreadReadTimer = window.setTimeout(async () => {
+    const messages = [...pendingUnreadReads.values()];
+    pendingUnreadReads.clear();
+    unreadReadTimer = null;
+    try {
+      await markMessagesRead(messages);
+      for (const message of messages) {
+        const key = unreadMessageKey(message.messageType, message.messageId);
+        for (const element of document.querySelectorAll(`[data-unread-message-key="${key}"]`)) {
+          element.querySelector(".message-unread-dot")?.remove();
+          element.classList.remove("is-unread-message");
+        }
+      }
+    } catch (error) {
+      setSystemMessage(discussionMessage, error.message, "error");
+    }
+  }, 150);
+}
+
+const unreadVisibilityObserver = new IntersectionObserver((entries) => {
+  for (const entry of entries) {
+    if (!entry.isIntersecting) continue;
+    const message = unreadMessageTargets.get(entry.target);
+    unreadVisibilityObserver.unobserve(entry.target);
+    if (message) queueVisibleUnreadMessage(message);
+  }
+}, { threshold: 0.25 });
+
+function observeUnreadMessage(element, messageType, messageId, threadId) {
+  if (!unreadMessageKeys.has(unreadMessageKey(messageType, messageId))) return;
+  element.classList.add("is-unread-message");
+  element.dataset.unreadMessageKey = unreadMessageKey(messageType, messageId);
+  unreadMessageTargets.set(element, { messageId, messageType, threadId });
+  unreadVisibilityObserver.observe(element);
+}
+
+function showUnreadMessageMarker(messageType, messageId) {
+  const key = unreadMessageKey(messageType, messageId);
+  unreadMessageKeys.add(key);
+  for (const element of document.querySelectorAll(`[data-message-key="${key}"]`)) {
+    const actions = element.matches(".thread-card")
+      ? element.querySelector(".thread-header-actions")
+      : element.querySelector(".reply-message-actions");
+    if (!actions?.querySelector(".message-unread-dot")) actions?.append(createUnreadDot());
+  }
+}
+
 async function showWorkspaceThreads(spaceId = null) {
   const selectedSpace = availableSpaces.find((space) => !space.archived && space.id === spaceId) ?? null;
   selectedThreadSpaceId = selectedSpace?.id ?? null;
@@ -259,6 +335,44 @@ async function showWorkspaceThreads(spaceId = null) {
   updateWorkspaceThreadNavigation(selectedThreadSpaceId);
   setThreadSource();
   await loadThreads();
+}
+
+function updateUnreadWorkspaceLabels() {
+  for (const button of portalSpaceList.querySelectorAll("button[data-space-id]")) {
+    const hasUnread = (unreadBySpace[button.dataset.spaceId] ?? 0) > 0;
+    button.querySelector(".workspace-unread-dot")?.toggleAttribute("hidden", !hasUnread);
+  }
+}
+
+async function loadUnreadSummary() {
+  const response = await fetch("/api/unread-summary", { headers: { Accept: "application/json" } });
+  const payload = await readJsonResponse(response);
+  unreadBySpace = payload.unreadBySpace;
+  unreadMessages = payload.unreadMessages;
+  unreadMessageKeys = new Set(unreadMessages.map((message) => unreadMessageKey(message.messageType, message.messageId)));
+  updateUnreadWorkspaceLabels();
+}
+
+async function markMessagesRead(messages) {
+  if (!messages.length) return;
+  const response = await fetch("/api/unread/read", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ messages }),
+  });
+  await readJsonResponse(response);
+  await loadUnreadSummary();
+}
+
+async function setMessageUnread(messageType, messageId, threadId) {
+  const response = await fetch("/api/unread", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ messageId, messageType, threadId }),
+  });
+  await readJsonResponse(response);
+  await loadUnreadSummary();
+  showUnreadMessageMarker(messageType, messageId);
 }
 
 function createThreadSummary(thread) {
@@ -660,9 +774,15 @@ async function loadSpaces() {
       prefix.className = "workspace-prefix";
       prefix.setAttribute("aria-hidden", "true");
       prefix.textContent = "#";
+      const unreadDot = document.createElement("span");
+      unreadDot.className = "workspace-unread-dot";
+      unreadDot.setAttribute("aria-label", "有未讀訊息");
+      unreadDot.setAttribute("role", "img");
+      unreadDot.hidden = true;
       const label = document.createElement("span");
+      label.className = "workspace-label";
       label.textContent = space.name;
-      button.append(prefix, label);
+      button.append(prefix, unreadDot, label);
       button.classList.toggle("is-child-space-link", Boolean(space.parentId && visibleIds.has(space.parentId)));
       button.dataset.spaceId = space.id;
       button.addEventListener("click", () => showWorkspaceThreads(space.id));
@@ -673,6 +793,7 @@ async function loadSpaces() {
       empty.textContent = "尚未加入工作區";
       portalSpaceList.append(empty);
     }
+    updateUnreadWorkspaceLabels();
     if (selectedSidebarSpaceId && !activeSpaces.some((space) => space.id === selectedSidebarSpaceId)) {
       selectedSidebarSpaceId = null;
     }
@@ -991,7 +1112,10 @@ function renderReplyTree(thread, replies, attachments, container, onRefresh) {
     item.className = "reply-item";
     const message = document.createElement("div");
     message.className = "reply-message";
+    message.dataset.messageKey = unreadMessageKey("reply", reply.id);
     const authorMeta = createAuthorMetadata(reply);
+    const replyIsUnread = unreadMessageKeys.has(unreadMessageKey("reply", reply.id));
+    observeUnreadMessage(message, "reply", reply.id, thread.id);
     const content = document.createElement("p");
     content.className = "reply-content";
     content.textContent = reply.content;
@@ -1089,6 +1213,42 @@ function renderReplyTree(thread, replies, attachments, container, onRefresh) {
         textarea.focus();
       });
     }
+    const unreadMenu = document.createElement("details");
+    unreadMenu.className = "reply-action-menu";
+    const unreadMenuToggle = document.createElement("summary");
+    unreadMenuToggle.className = "reply-menu-toggle btn btn-quiet";
+    unreadMenuToggle.setAttribute("role", "button");
+    unreadMenuToggle.setAttribute("aria-haspopup", "menu");
+    unreadMenuToggle.setAttribute("aria-label", "更多回覆操作");
+    unreadMenuToggle.title = "更多操作";
+    const unreadMenuIcon = document.createElement("i");
+    unreadMenuIcon.className = "bi bi-three-dots";
+    unreadMenuIcon.setAttribute("aria-hidden", "true");
+    unreadMenuToggle.append(unreadMenuIcon);
+    const unreadMenuList = document.createElement("div");
+    unreadMenuList.className = "reply-menu-list";
+    unreadMenuList.setAttribute("role", "menu");
+    const unreadButton = document.createElement("button");
+    unreadButton.type = "button";
+    unreadButton.className = "reply-menu-item btn btn-quiet";
+    unreadButton.setAttribute("role", "menuitem");
+    unreadButton.textContent = "設定未讀取";
+    unreadButton.addEventListener("click", async () => {
+      unreadMenu.removeAttribute("open");
+      unreadButton.disabled = true;
+      try {
+        await setMessageUnread("reply", reply.id, thread.id);
+      } catch (error) {
+        setSystemMessage(discussionMessage, error.message, "error");
+      } finally {
+        unreadButton.disabled = false;
+      }
+    });
+    unreadMenuList.append(unreadButton);
+    unreadMenu.append(unreadMenuToggle, unreadMenuList);
+    unreadMenu.addEventListener("toggle", () => unreadMenuToggle.setAttribute("aria-expanded", String(unreadMenu.open)));
+    actions.append(unreadMenu);
+    if (replyIsUnread) actions.append(createUnreadDot());
     message.append(authorMeta, content, attachmentList, actions);
     const composerHost = document.createElement("div");
     composerHost.className = "nested-composer-host";
@@ -1121,6 +1281,7 @@ function renderReplyTree(thread, replies, attachments, container, onRefresh) {
 function createThreadCard(thread) {
   const card = document.createElement("article");
   card.className = `thread-card${thread.pinned ? " is-pinned" : ""}${thread.archived ? " is-archived" : ""}`;
+  card.dataset.messageKey = unreadMessageKey("thread", thread.id);
   const display = document.createElement("div");
   display.className = "thread-display";
   const header = document.createElement("div");
@@ -1131,6 +1292,7 @@ function createThreadCard(thread) {
   titleLine.className = "thread-title-line";
   const title = document.createElement("h3");
   title.textContent = thread.title;
+  const threadIsUnread = unreadMessageKeys.has(unreadMessageKey("thread", thread.id));
   titleLine.append(title, createAuthorMetadata(thread));
   const status = availableStatuses.find((item) => item.id === thread.statusId);
   const meta = document.createElement("span");
@@ -1198,6 +1360,7 @@ function createThreadCard(thread) {
   let threadAttachments = [];
   let detailsReady;
   if (signedInUser.role === "admin" || signedInUser.id === thread.authorId) addMenuItem("編輯", "bi-pencil", () => openThreadEditor());
+  addMenuItem("設定未讀取", "bi-envelope", () => setMessageUnread("thread", thread.id, thread.id));
   const toggleBookmark = async () => {
     const response = await fetch(`/api/threads/${encodeURIComponent(thread.id)}/bookmark`, {
       method: "PUT",
@@ -1230,6 +1393,7 @@ function createThreadCard(thread) {
   actionMenu.append(actionMenuToggle, actionMenuList);
   actionMenu.addEventListener("toggle", () => actionMenuToggle.setAttribute("aria-expanded", String(actionMenu.open)));
   headerActions.append(replyAction, actionSeparator, actionMenu);
+  if (threadIsUnread) headerActions.append(createUnreadDot());
   header.append(titleGroup, headerActions);
   const body = document.createElement("p");
   body.className = "thread-body";
@@ -1249,6 +1413,7 @@ function createThreadCard(thread) {
   });
   display.append(header, body, attachmentList, replyList, topComposer.element);
   card.append(display);
+  observeUnreadMessage(card, "thread", thread.id, thread.id);
 
   async function refreshDetails() {
     const [detailsResponse, attachmentsResponse] = await Promise.all([
@@ -1413,6 +1578,7 @@ function showUser(user) {
   const initialize = async () => {
     if (user.role === "admin") await loadUsers();
     await loadSpaces();
+    await loadUnreadSummary();
     await loadDiscussion();
   };
   initialize().catch((error) => {

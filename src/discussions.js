@@ -23,6 +23,11 @@ export function createInMemoryDiscussionStore() {
   const threads = new Map();
   const replies = new Map();
   const bookmarks = new Map();
+  const unreadMessages = new Map();
+
+  function unreadKey(userId, messageType, messageId) {
+    return `${userId}:${messageType}:${messageId}`;
+  }
 
   return Object.freeze({
     createStatus(input, actor, now = new Date()) {
@@ -286,6 +291,59 @@ export function createInMemoryDiscussionStore() {
           return haystack.includes(normalizedQuery) ? copy(thread) : null;
         })
         .filter(Boolean);
+    },
+
+    createUnreadMessages(message, userIds, now = new Date()) {
+      for (const userId of userIds) {
+        const key = unreadKey(userId, message.messageType, message.messageId);
+        unreadMessages.set(key, {
+          ...message,
+          createdAt: now.toISOString(),
+          readAt: null,
+          updatedAt: now.toISOString(),
+          userId,
+        });
+      }
+    },
+
+    listUnreadSummary(userId, allowedSpaceIds) {
+      const allowedSpaces = new Set(allowedSpaceIds);
+      const counts = {};
+      for (const message of unreadMessages.values()) {
+        if (message.userId === userId && !message.readAt && allowedSpaces.has(message.spaceId)) {
+          counts[message.spaceId] = (counts[message.spaceId] ?? 0) + 1;
+        }
+      }
+      return counts;
+    },
+
+    listUnreadMessages(userId, allowedSpaceIds) {
+      const allowedSpaces = new Set(allowedSpaceIds);
+      return [...unreadMessages.values()]
+        .filter((message) => message.userId === userId && !message.readAt && allowedSpaces.has(message.spaceId))
+        .map(copy);
+    },
+
+    setMessagesRead(userId, messages, now = new Date()) {
+      for (const message of messages) {
+        const record = unreadMessages.get(unreadKey(userId, message.messageType, message.messageId));
+        if (record) {
+          record.readAt = now.toISOString();
+          record.updatedAt = now.toISOString();
+        }
+      }
+    },
+
+    setMessageUnread(userId, message, now = new Date()) {
+      const key = unreadKey(userId, message.messageType, message.messageId);
+      const existing = unreadMessages.get(key);
+      unreadMessages.set(key, {
+        ...message,
+        createdAt: existing?.createdAt ?? now.toISOString(),
+        readAt: null,
+        updatedAt: now.toISOString(),
+        userId,
+      });
     },
   });
 }
