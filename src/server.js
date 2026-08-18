@@ -176,28 +176,26 @@ export function createApplicationServer(options = {}) {
     const admin = developmentUsers.find((user) => user.role === "admin");
     const member = developmentUsers.find((user) => user.role === "member");
     if (admin && member) {
-      const department = spaceStore.createSpace({
+      const company = spaceStore.createSpace({
         description: "公司內部公告與共通資訊",
         name: "公司公告",
-        type: "department",
       }, admin);
-      spaceStore.addMember(department.id, member, "member", admin);
-      const project = spaceStore.createSpace({
+      spaceStore.addMember(company.id, member, "member", admin);
+      const implementation = spaceStore.createSpace({
         description: "ERP 導入相關討論與追蹤",
         name: "ERP 導入專案",
-        type: "project",
+        parentId: company.id,
       }, admin);
-      spaceStore.addMember(project.id, member, "member", admin);
       const openStatus = discussionStore.createStatus({ name: "未處理", sortOrder: 1 }, admin);
       discussionStore.createStatus({ name: "處理中", sortOrder: 2 }, admin);
       discussionStore.createStatus({ name: "已完成", sortOrder: 3 }, admin);
       discussionStore.createThread({
         content: "這是本機 POC 的示範討論，可用來驗證回覆、狀態、附件、搜尋與書籤功能。",
-        spaceId: project.id,
+        spaceId: implementation.id,
         statusId: openStatus.id,
         title: "歡迎使用 Koino Harbor",
       }, member);
-      void department;
+      void company;
     }
   }
 

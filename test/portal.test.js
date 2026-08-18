@@ -38,7 +38,9 @@ test("portal shell exposes the ordered account, Space, bookmark and admin entry 
   assert.match(html, /id="portal-profile-button"[\s\S]*?登入者[\s\S]*?id="portal-user-name"/);
   assert.match(html, /id="portal-all-spaces"[^>]*>[\s\S]*?bi-grid-3x3-gap-fill[\s\S]*?全部工作區[\s\S]*?<\/button>/);
   assert.match(html, /id="spaces-title"[^>]*>工作區管理<\/h2>/);
-  assert.match(html, /id="space-edit-dialog"[\s\S]*?name="archived"[\s\S]*?啟用[\s\S]*?封存[\s\S]*?儲存變更/);
+  assert.match(html, /id="create-root-space-button"[\s\S]*?新增頂層工作區/);
+  assert.doesNotMatch(html, /id="space-form"/);
+  assert.match(html, /id="space-edit-dialog"[\s\S]*?name="parentId"[\s\S]*?name="accessMode"[\s\S]*?name="archived"[\s\S]*?儲存變更/);
   assert.doesNotMatch(html, /id="space-edit-dialog"[\s\S]*?<p class="eyebrow">Workspace<\/p>/);
   assert.doesNotMatch(html, /Workspace overview|顯示所有可存取工作區的資訊。/);
   assert.doesNotMatch(html, /id="portal-all-spaces"[^>]*data-portal-target="spaces"/);
@@ -61,7 +63,7 @@ test("portal client aggregates accessible threads and disables creation without 
   assert.match(script, /portalAdminNav\.hidden = user\.role !== "admin"/);
   assert.match(script, /fetch\("\/api\/auth\/me", \{\s*method: "PATCH"/);
   assert.match(script, /function showSpaceOverview\(spaceId = null\)/);
-  assert.match(script, /function openSpaceEditDialog\(space\)/);
+  assert.match(script, /function openSpaceDialog\(\{ parent = null, space = null \} = \{\}\)/);
   assert.match(script, /editButton\.textContent = "編輯工作區"/);
   assert.match(script, /spaceEditDialog\.showModal\(\)/);
   assert.match(script, /archived: formData\.get\("archived"\) === "true"/);
@@ -69,6 +71,12 @@ test("portal client aggregates accessible threads and disables creation without 
   assert.match(script, /threadSpaceFilter\.value = selectedThreadSpaceId \?\? ""/);
   assert.match(script, /button\.dataset\.spaceId = space\.id/);
   assert.match(script, /prefix\.textContent = "#"/);
+  assert.match(script, /function orderedSpaces\(spaces\)/);
+  assert.match(script, /openSpaceDialog\(\{ parent: space \}\)/);
+  assert.match(script, /createRootSpaceButton\.addEventListener\("click", \(\) => openSpaceDialog\(\)\)/);
+  assert.match(script, /accessMode: formData\.get\("accessMode"\)/);
+  assert.match(script, /method: creating \? "POST" : "PATCH"/);
+  assert.doesNotMatch(script, /announcementList|space\.type/);
   assert.match(script, /button\.addEventListener\("click", \(\) => showWorkspaceThreads\(space\.id\)\)/);
   assert.match(script, /portalAllSpaces\.addEventListener\("click", \(\) => showWorkspaceThreads\(\)\)/);
   assert.match(script, /setThreadSource\("\/api\/bookmarks", "目前沒有已加入書籤的討論串。"\)/);
@@ -132,6 +140,8 @@ test("portal styles preserve hidden state, keyboard focus and mobile single-colu
   assert.match(modernStyles, /\.message-author-meta\s*\{/);
   assert.match(modernStyles, /\.message-edited\s*\{/);
   assert.match(modernStyles, /\.inline-thread-form\s*\{/);
+  assert.match(modernStyles, /\.space-item\.is-child-space\s*\{/);
+  assert.match(modernStyles, /margin-left: clamp\(18px, 4vw, 56px\)/);
 });
 
 test("Firebase portal reads avoid unnecessary composite-index dependencies at POC scale", async () => {

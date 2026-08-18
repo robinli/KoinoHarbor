@@ -12,18 +12,20 @@ test("Firebase configuration files reference the delivered rules and indexes", a
   assert.ok(indexes.indexes.length >= 2);
 });
 
-test("security rules deny unmatched access and enforce Space membership", async () => {
+test("security rules deny unmatched access and enforce hierarchical Space membership", async () => {
   const firestoreRules = await readFile("firestore.rules", "utf8");
   const storageRules = await readFile("storage.rules", "utf8");
 
   assert.match(firestoreRules, /function canAccessSpace/);
   assert.match(firestoreRules, /isSpaceMember\(spaceId\)/);
   assert.doesNotMatch(firestoreRules, /isInternalMember/);
-  assert.match(firestoreRules, /return isAdmin\(\) \|\| isSpaceMember\(spaceId\)/);
+  assert.match(firestoreRules, /function inheritsParentAccess/);
+  assert.match(firestoreRules, /space\.data\.accessMode == 'inherited'/);
+  assert.match(firestoreRules, /function validSpaceParent/);
   assert.match(storageRules, /request\.resource\.size <= 20 \* 1024 \* 1024/);
   assert.match(storageRules, /match \/\{allPaths=\*\*\}/);
   assert.match(storageRules, /allow read, write: if false/);
-  assert.match(storageRules, /return isAdmin\(\) \|\| isSpaceMember\(spaceId\)/);
+  assert.match(storageRules, /space\.data\.accessMode == 'inherited'/);
 });
 
 test("container definition runs as a non-root user on the Cloud Run port", async () => {

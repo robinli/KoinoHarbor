@@ -588,6 +588,25 @@ textarea.form-control {
   line-height: 1.06;
 }
 
+.spaces-panel .compact-heading {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.spaces-panel .compact-heading #create-root-space-button {
+  color: #fff;
+  border-color: var(--kh-purple);
+  background: var(--kh-purple);
+}
+
+.spaces-panel .compact-heading #create-root-space-button:hover {
+  color: #fff;
+  border-color: var(--kh-purple-dark);
+  background: var(--kh-purple-dark);
+}
+
 .portal-page-heading p:last-child,
 .compact-heading > p:last-child {
   max-width: 680px;
@@ -721,22 +740,6 @@ textarea.form-control {
 
 .dashboard-widget .eyebrow {
   margin-bottom: 8px;
-}
-
-#announcement-list {
-  margin-top: 16px;
-}
-
-#announcement-list button {
-  display: block;
-  width: 100%;
-  padding: 10px 0;
-  color: var(--kh-ink);
-  border: 0;
-  border-top: 1px solid var(--kh-line);
-  border-radius: 0;
-  background: transparent;
-  text-align: left;
 }
 
 .status-summary {
@@ -1214,11 +1217,17 @@ textarea.form-control {
 }
 
 .space-grid {
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr));
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .space-item {
   padding: 20px;
+}
+
+.space-item.is-child-space {
+  margin-left: clamp(18px, 4vw, 56px);
+  border-left: 4px solid var(--kh-purple);
+  background: var(--kh-purple-soft);
 }
 
 .space-type,
@@ -1500,6 +1509,11 @@ textarea.form-control {
   .portal-page-heading h2,
   .compact-heading h2 {
     font-size: 2rem;
+  }
+
+  .spaces-panel .compact-heading {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .portal-heading-actions,

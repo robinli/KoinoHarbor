@@ -94,11 +94,6 @@
                 </section>
                 <aside class="dashboard-rail">
                   <section class="dashboard-widget">
-                    <p class="eyebrow">Company</p>
-                    <h3>公司資訊</h3>
-                    <div id="announcement-list"></div>
-                  </section>
-                  <section class="dashboard-widget">
                     <p class="eyebrow">Status</p>
                     <h3>討論狀態</h3>
                     <div class="status-summary" id="status-summary"></div>
@@ -110,13 +105,8 @@
             <section class="spaces-panel portal-view" id="spaces-panel" data-portal-view="spaces" aria-labelledby="spaces-title" hidden>
               <div class="section-heading compact-heading">
                 <h2 id="spaces-title">工作區管理</h2>
+                <button type="button" id="create-root-space-button">新增頂層工作區</button>
               </div>
-              <form class="space-form" id="space-form" hidden>
-                <label>名稱<input name="name" required maxlength="80" placeholder="例如：ERP 導入專案"></label>
-                <label>類型<select name="type"><option value="department">Department</option><option value="project">Project</option></select></label>
-                <label class="space-description-field">說明<input name="description" maxlength="200" placeholder="工作區用途簡述"></label>
-                <button type="submit">建立工作區</button>
-              </form>
               <p class="form-message" id="space-message" role="alert"></p>
               <div class="space-grid" id="space-list"></div>
             </section>
@@ -239,18 +229,19 @@
       <dialog class="edit-dialog" id="space-edit-dialog">
         <form class="edit-dialog-form" id="space-edit-form">
           <div class="edit-dialog-heading">
-            <div><h2>編輯工作區</h2></div>
+            <div><h2 id="space-dialog-title">編輯工作區</h2></div>
             <button class="dialog-close" type="button" data-close-dialog aria-label="關閉">×</button>
           </div>
           <input name="spaceId" type="hidden">
+          <input name="parentId" type="hidden">
           <label>名稱<input name="name" required maxlength="80"></label>
-          <label>類型<select name="type"><option value="department">Department</option><option value="project">Project</option></select></label>
+          <label id="space-access-mode-field">存取模式<select name="accessMode"><option value="inherited">繼承父層成員</option><option value="restricted">限制為此工作區成員</option></select></label>
           <label>說明<input name="description" maxlength="200"></label>
-          <label>狀態<select name="archived"><option value="false">啟用</option><option value="true">封存</option></select></label>
+          <label id="space-archived-field">狀態<select name="archived"><option value="false">啟用</option><option value="true">封存</option></select></label>
           <p class="form-message" id="space-edit-message" role="alert"></p>
           <div class="dialog-actions">
             <button class="secondary-button" type="button" data-close-dialog>取消</button>
-            <button type="submit">儲存變更</button>
+            <button type="submit" id="space-dialog-submit">儲存變更</button>
           </div>
         </form>
       </dialog>

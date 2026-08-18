@@ -18,7 +18,12 @@ service firebase.storage {
     }
 
     function canAccessSpace(spaceId) {
-      return isAdmin() || isSpaceMember(spaceId);
+      let space = firestore.get(/databases/(default)/documents/spaces/$(spaceId));
+      return isAdmin()
+        || isSpaceMember(spaceId)
+        || (space.data.parentId != null
+          && space.data.accessMode == 'inherited'
+          && isSpaceMember(space.data.parentId));
     }
 
     function allowedContentType() {

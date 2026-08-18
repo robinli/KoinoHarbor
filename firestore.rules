@@ -22,8 +22,27 @@ service cloud.firestore {
       return activeUser() && exists(/databases/$(database)/documents/spaces/$(spaceId)/members/$(request.auth.uid));
     }
 
+    function inheritsParentAccess(space) {
+      return space.data.parentId != null
+        && space.data.accessMode == 'inherited'
+        && isSpaceMember(space.data.parentId);
+    }
+
     function canAccessSpace(spaceId) {
-      return isAdmin() || isSpaceMember(spaceId);
+      return isAdmin()
+        || isSpaceMember(spaceId)
+        || inheritsParentAccess(get(/databases/$(database)/documents/spaces/$(spaceId)));
+    }
+
+    function validSpaceParent() {
+      return request.resource.data.parentId == null
+        || (exists(/databases/$(database)/documents/spaces/$(request.resource.data.parentId))
+          && get(/databases/$(database)/documents/spaces/$(request.resource.data.parentId)).data.parentId == null);
+    }
+
+    function validSpaceAccessMode() {
+      return request.resource.data.accessMode == 'inherited'
+        || request.resource.data.accessMode == 'restricted';
     }
 
     function validAuditOnCreate() {
@@ -48,8 +67,10 @@ service cloud.firestore {
 
     match /spaces/{spaceId} {
       allow read: if canAccessSpace(spaceId);
-      allow create: if isAdmin() && validAuditOnCreate();
-      allow update: if isAdmin() && validAuditOnUpdate();
+      allow create: if isAdmin() && validAuditOnCreate() && validSpaceParent() && validSpaceAccessMode();
+      allow update: if isAdmin() && validAuditOnUpdate()
+        && request.resource.data.parentId == resource.data.parentId
+        && request.resource.data.accessMode == resource.data.accessMode;
       allow delete: if false;
 
       match /members/{userId} {
