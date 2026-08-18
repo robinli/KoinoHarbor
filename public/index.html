@@ -235,6 +235,7 @@
           <input name="spaceId" type="hidden">
           <input name="parentId" type="hidden">
           <label>名稱<input name="name" required maxlength="80"></label>
+          <label>排序<input name="sortOrder" type="number" min="0" step="1" value="0" required></label>
           <label id="space-access-mode-field">存取模式<select name="accessMode"><option value="inherited">繼承父層成員</option><option value="restricted">限制為此工作區成員</option></select></label>
           <label>說明<input name="description" maxlength="200"></label>
           <label id="space-archived-field">狀態<select name="archived"><option value="false">啟用</option><option value="true">封存</option></select></label>

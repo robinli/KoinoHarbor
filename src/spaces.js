@@ -19,6 +19,7 @@ function copySpace(space) {
     id: space.id,
     name: space.name,
     parentId: space.parentId,
+    sortOrder: space.sortOrder,
     updatedAt: space.updatedAt,
     updatedBy: space.updatedBy,
   };
@@ -33,6 +34,12 @@ function normaliseParentId(parentId) {
 function normaliseAccessMode(accessMode) {
   const value = accessMode ?? "inherited";
   if (!VALID_ACCESS_MODES.has(value)) throw validationError("工作區存取模式必須是 inherited 或 restricted。");
+  return value;
+}
+
+function normaliseSortOrder(sortOrder) {
+  const value = sortOrder ?? 0;
+  if (!Number.isInteger(value) || value < 0) throw validationError("工作區排序必須是大於或等於 0 的整數。");
   return value;
 }
 
@@ -67,6 +74,7 @@ export function createInMemorySpaceStore() {
         id: randomUUID(),
         name,
         parentId,
+        sortOrder: normaliseSortOrder(input.sortOrder),
         updatedAt: now.toISOString(),
         updatedBy: actor.id,
       };
@@ -91,7 +99,7 @@ export function createInMemorySpaceStore() {
       return [...spaces.values()]
         .filter((space) => this.canAccess(space.id, user))
         .map(copySpace)
-        .sort((left, right) => (left.parentId ? 1 : 0) - (right.parentId ? 1 : 0) || left.name.localeCompare(right.name));
+        .sort((left, right) => (left.parentId ? 1 : 0) - (right.parentId ? 1 : 0) || left.sortOrder - right.sortOrder || left.name.localeCompare(right.name));
     },
 
     updateSpace(spaceId, changes, actor = { id: "system" }, now = new Date()) {
@@ -121,12 +129,8 @@ export function createInMemorySpaceStore() {
         space.description = changes.description.trim();
       }
 
-      if (changes.type !== undefined) {
-        if (!VALID_SPACE_TYPES.has(changes.type)) {
-          throw validationError("工作區類型必須是 department 或 project。");
-        }
-
-        space.type = changes.type;
+      if (changes.sortOrder !== undefined) {
+        space.sortOrder = normaliseSortOrder(changes.sortOrder);
       }
 
       if (changes.archived !== undefined) {

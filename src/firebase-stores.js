@@ -31,6 +31,12 @@ function requiredText(value, name) {
   return value.trim();
 }
 
+function sortOrder(value) {
+  const result = value ?? 0;
+  if (!Number.isInteger(result) || result < 0) throw validationError("工作區排序必須是大於或等於 0 的整數。");
+  return result;
+}
+
 export function createFirestoreSpaceStore(app) {
   const firestore = getFirestore(app);
   const spaces = firestore.collection("spaces");
@@ -62,6 +68,7 @@ export function createFirestoreSpaceStore(app) {
         description: typeof input.description === "string" ? input.description.trim() : "",
         name: requiredText(input.name, "工作區名稱"),
         parentId,
+        sortOrder: sortOrder(input.sortOrder),
         updatedAt: now,
         updatedBy: actor.id,
       };
@@ -85,13 +92,14 @@ export function createFirestoreSpaceStore(app) {
     },
 
     async listSpaces(user) {
-      const snapshot = await spaces.orderBy("name").get();
-      if (user.role === "admin") return snapshot.docs.map(plain);
+      const snapshot = await spaces.get();
+      const order = (left, right) => (left.parentId ? 1 : 0) - (right.parentId ? 1 : 0) || (left.sortOrder ?? 0) - (right.sortOrder ?? 0) || left.name.localeCompare(right.name);
+      if (user.role === "admin") return snapshot.docs.map(plain).sort(order);
       const results = await Promise.all(snapshot.docs.map(async (space) => ({
         space: plain(space),
         accessible: await this.canAccess(space.id, user),
       })));
-      return results.filter((item) => item.accessible).map((item) => item.space);
+      return results.filter((item) => item.accessible).map((item) => item.space).sort(order);
     },
 
     async updateSpace(spaceId, changes, actor) {
@@ -101,10 +109,7 @@ export function createFirestoreSpaceStore(app) {
       const update = { updatedAt: serverTimestamp(), updatedBy: actor.id };
       if (changes.name !== undefined) update.name = requiredText(changes.name, "工作區名稱");
       if (changes.description !== undefined) update.description = typeof changes.description === "string" ? changes.description.trim() : (() => { throw validationError("工作區說明必須是文字。"); })();
-      if (changes.type !== undefined) {
-        if (!["department", "project"].includes(changes.type)) throw validationError("工作區類型必須是 department 或 project。");
-        update.type = changes.type;
-      }
+      if (changes.sortOrder !== undefined) update.sortOrder = sortOrder(changes.sortOrder);
       if (changes.archived !== undefined) {
         if (typeof changes.archived !== "boolean") throw validationError("archived 必須是布林值。");
         update.archived = changes.archived;

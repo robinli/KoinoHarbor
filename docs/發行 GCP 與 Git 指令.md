@@ -18,11 +18,11 @@ Git Push 與 建立 PR 的語法
 git branch --show-current
 
 # 加入並提交變更
-git add public src
+git add .
 git commit -m "這次的備註"
 
 # 推送目前分支
-git push -u origin agent/workspace-thread-navigation
+git push
 
 # 建立正式 PR
 gh pr create --base main --head codex-local --title "這次的備註" --body "這次的備註"

@@ -371,7 +371,7 @@ textarea.form-control {
 .portal-nav {
   display: grid;
   gap: 0;
-  padding: 2px 0 14px;
+  padding: 2px 0;
 }
 
 .portal-nav button,
@@ -407,6 +407,10 @@ textarea.form-control {
   color: var(--kh-purple-dark);
 }
 
+.portal-space-links button.is-child-space-link {
+  padding-left: 30px;
+}
+
 .portal-nav button:hover,
 .portal-space-links button:hover,
 .portal-sidebar .portal-logout:hover {
@@ -424,7 +428,7 @@ textarea.form-control {
 }
 
 .portal-space-links {
-  padding: 0 0 8px 8px;
+  padding: 0;
   border-top: 0;
 }
 
@@ -450,9 +454,9 @@ textarea.form-control {
 }
 
 .portal-nav-secondary {
-  margin-top: 6px;
-  padding-top: 12px;
-  border-top: 1px solid rgb(255 255 255 / 12%);
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
 }
 
 .portal-sidebar .portal-logout {
