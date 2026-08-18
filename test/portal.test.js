@@ -121,6 +121,7 @@ test("portal client aggregates accessible threads and disables creation without 
   assert.match(script, /thread\.pinned \? "取消置頂" : "置頂"/);
   assert.match(script, /thread\.archived \? "取消封存" : "封存"/);
   assert.match(script, /parentReplyId: reply\.id/);
+  assert.match(script, /item\.append\(message\);[\s\S]*?item\.append\(childList\);[\s\S]*?item\.append\(composerHost\);/);
   assert.match(script, /const canEditReply = signedInUser\.id === reply\.authorId/);
   assert.match(script, /function formatRelativeTime\(value\)/);
   assert.match(script, /elapsedSeconds >= 604_800/);
@@ -165,10 +166,15 @@ test("portal styles preserve hidden state, keyboard focus and mobile single-colu
   assert.match(modernStyles, /\.space-item\.is-child-space\s*\{/);
   assert.match(modernStyles, /margin-left: clamp\(18px, 4vw, 56px\)/);
   assert.match(modernStyles, /\.portal-space-links\s*\{[^}]*padding:\s*0;/s);
+  assert.match(modernStyles, /\.portal-page-heading\s*\{[^}]*margin-bottom:\s*10px[^}]*padding-bottom:\s*0[^}]*border-bottom:\s*0/s);
+  assert.match(modernStyles, /\.discussion-toolbar,[\s\S]*?margin-bottom:\s*10px/s);
+  assert.match(modernStyles, /\.thread-list\s*\{[^}]*gap:\s*10px/s);
   assert.match(modernStyles, /\.workspace-label\s*\{[^}]*font-weight:\s*400/s);
   assert.match(modernStyles, /\.workspace-unread-dot\s*\{/);
   assert.match(modernStyles, /\.message-unread-dot\s*\{/);
   assert.match(modernStyles, /\.reply-action-menu\s*\{/);
+  assert.match(modernStyles, /\.reply-menu-item\.btn\s*\{[^}]*color:\s*#514f53[^}]*background:\s*transparent/s);
+  assert.match(modernStyles, /\.reply-menu-item\.btn:hover,[\s\S]*?background:\s*var\(--kh-surface-soft\)/s);
   assert.match(modernStyles, /\.portal-nav-secondary\s*\{[^}]*border-top:\s*0;/s);
 });
 

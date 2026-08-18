@@ -519,9 +519,9 @@ textarea.form-control {
 .portal-page-heading {
   gap: 24px;
   align-items: flex-end;
-  margin-bottom: 28px;
-  padding-bottom: 24px;
-  border-bottom: 1px solid var(--kh-line);
+  margin-bottom: 10px;
+  padding-bottom: 0;
+  border-bottom: 0;
 }
 
 .portal-page-heading > .btn-primary,
@@ -795,7 +795,7 @@ textarea.form-control {
 .space-form,
 .user-create-form,
 .status-form {
-  margin-bottom: 18px;
+  margin-bottom: 10px;
   padding: 16px;
 }
 
@@ -844,7 +844,10 @@ textarea.form-control {
   min-width: min(360px, 42vw);
 }
 
-.thread-list,
+.thread-list {
+  gap: 10px;
+}
+
 .space-grid {
   gap: 14px;
 }
@@ -976,9 +979,19 @@ textarea.form-control {
   width: 100%;
   min-height: 30px;
   padding: 4px 8px;
-  color: var(--kh-text);
+  color: #514f53;
+  border: 0;
+  background: transparent;
   text-align: left;
   white-space: nowrap;
+}
+
+.reply-menu-item.btn:hover,
+.reply-menu-item.btn:focus-visible,
+.reply-menu-item.btn:active {
+  color: var(--kh-purple-dark);
+  border: 0;
+  background: var(--kh-surface-soft);
 }
 
 .thread-action-separator {
@@ -1423,7 +1436,7 @@ textarea.form-control {
   display: flex;
   gap: 12px;
   align-items: center;
-  margin: 10px 0;
+  margin: 0 0 10px;
   padding: 10px 12px;
   border-radius: 9px;
 }
