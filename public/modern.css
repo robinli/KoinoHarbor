@@ -723,22 +723,6 @@ textarea.form-control {
   margin-bottom: 8px;
 }
 
-#announcement-list {
-  margin-top: 16px;
-}
-
-#announcement-list button {
-  display: block;
-  width: 100%;
-  padding: 10px 0;
-  color: var(--kh-ink);
-  border: 0;
-  border-top: 1px solid var(--kh-line);
-  border-radius: 0;
-  background: transparent;
-  text-align: left;
-}
-
 .status-summary {
   margin-top: 14px;
 }

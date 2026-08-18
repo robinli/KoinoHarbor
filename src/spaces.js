@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-const VALID_SPACE_TYPES = new Set(["department", "project"]);
+const VALID_ACCESS_MODES = new Set(["inherited", "restricted"]);
 const VALID_MEMBERSHIP_ROLES = new Set(["manager", "member", "guest"]);
 
 function validationError(message) {
@@ -11,43 +11,62 @@ function validationError(message) {
 
 function copySpace(space) {
   return {
+    accessMode: space.accessMode,
     archived: space.archived,
     createdAt: space.createdAt,
     createdBy: space.createdBy,
     description: space.description,
     id: space.id,
     name: space.name,
-    type: space.type,
+    parentId: space.parentId,
     updatedAt: space.updatedAt,
     updatedBy: space.updatedBy,
   };
+}
+
+function normaliseParentId(parentId) {
+  if (parentId === undefined || parentId === null || parentId === "") return null;
+  if (typeof parentId !== "string" || !parentId.trim()) throw validationError("父工作區必須是有效的工作區 ID。");
+  return parentId;
+}
+
+function normaliseAccessMode(accessMode) {
+  const value = accessMode ?? "inherited";
+  if (!VALID_ACCESS_MODES.has(value)) throw validationError("工作區存取模式必須是 inherited 或 restricted。");
+  return value;
 }
 
 export function createInMemorySpaceStore() {
   const spaces = new Map();
   const memberships = new Map();
 
+  function isDirectMember(spaceId, userId) {
+    return memberships.get(spaceId)?.has(userId) ?? false;
+  }
+
   return Object.freeze({
     createSpace(input, actor = { id: "system" }, now = new Date()) {
       const name = typeof input.name === "string" ? input.name.trim() : "";
       const description = typeof input.description === "string" ? input.description.trim() : "";
+      const parentId = normaliseParentId(input.parentId);
 
       if (!name) {
         throw validationError("工作區名稱不可為空白。");
       }
 
-      if (!VALID_SPACE_TYPES.has(input.type)) {
-        throw validationError("工作區類型必須是 department 或 project。");
+      if (parentId && (!spaces.has(parentId) || spaces.get(parentId).parentId !== null)) {
+        throw validationError("父工作區不存在或不是頂層工作區。");
       }
 
       const space = {
+        accessMode: normaliseAccessMode(input.accessMode),
         archived: false,
         createdAt: now.toISOString(),
         createdBy: actor.id,
         description,
         id: randomUUID(),
         name,
-        type: input.type,
+        parentId,
         updatedAt: now.toISOString(),
         updatedBy: actor.id,
       };
@@ -62,28 +81,17 @@ export function createInMemorySpaceStore() {
     },
 
     canAccess(spaceId, user) {
-      if (!spaces.has(spaceId) || !user?.active) {
-        return false;
-      }
-
-      if (user.role === "admin") {
-        return true;
-      }
-
-      return memberships.get(spaceId)?.has(user.id) ?? false;
+      const space = spaces.get(spaceId);
+      if (!space || !user?.active) return false;
+      if (user.role === "admin" || isDirectMember(spaceId, user.id)) return true;
+      return space.parentId !== null && space.accessMode === "inherited" && isDirectMember(space.parentId, user.id);
     },
 
     listSpaces(user) {
       return [...spaces.values()]
-        .filter((space) => {
-          if (user.role === "admin") {
-            return true;
-          }
-
-          return memberships.get(space.id)?.has(user.id) ?? false;
-        })
+        .filter((space) => this.canAccess(space.id, user))
         .map(copySpace)
-        .sort((left, right) => left.name.localeCompare(right.name));
+        .sort((left, right) => (left.parentId ? 1 : 0) - (right.parentId ? 1 : 0) || left.name.localeCompare(right.name));
     },
 
     updateSpace(spaceId, changes, actor = { id: "system" }, now = new Date()) {
@@ -91,6 +99,10 @@ export function createInMemorySpaceStore() {
 
       if (!space) {
         return null;
+      }
+
+      if (changes.parentId !== undefined || changes.accessMode !== undefined) {
+        throw validationError("工作區階層與存取模式建立後不可變更。");
       }
 
       if (changes.name !== undefined) {

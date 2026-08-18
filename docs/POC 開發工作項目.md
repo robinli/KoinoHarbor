@@ -29,7 +29,7 @@
 
 | 編號 | 工作項目 | 工作內容 | 狀態 |
 |---:|---|---|---|
-| POC-05 | Space 管理 | 建立 Department／Project 類型 Space、SpaceMembers 關聯，以及成員新增與移除功能。 | 已完成 |
+| POC-05 | 工作區管理 | 建立兩階工作區、SpaceMembers 關聯，以及成員新增與移除功能。 | 已完成 |
 | POC-08 | 討論狀態管理 | 建立 ThreadStatus 資料集合，支援 Admin 新增、改名、排序、停用及 Thread 狀態變更。 | 已完成 |
 | POC-07 | 討論串功能 | 實作 Thread 與 Reply 的建立、讀取及修改，以及狀態、置頂、封存和 Space 存取限制。 | 已完成 |
 | POC-09 | 附件上傳與下載 | 上傳圖片及文件至 Firebase Storage、儲存 Metadata、限制檔案類型與容量，並依 Space Membership 控制存取。 | 已完成 |
@@ -48,7 +48,7 @@
 
 | 編號 | 工作項目 | 工作內容 | 狀態 |
 |---:|---|---|---|
-| POC-06 | Guest 權限隔離驗證 | 實作 Explicit Membership，確保 Guest 只能存取受邀 Project，並完成前端、API、Firestore 與 Storage 越權測試。 | 已完成 |
+| POC-06 | Guest 權限隔離驗證 | 實作直接成員與子工作區限制存取，確保 Guest 只能存取受邀工作區，並完成前端、API、Firestore 與 Storage 越權測試。 | 已完成 |
 
 ## POC 不包含項目
 

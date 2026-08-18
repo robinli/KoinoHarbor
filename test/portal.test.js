@@ -69,6 +69,10 @@ test("portal client aggregates accessible threads and disables creation without 
   assert.match(script, /threadSpaceFilter\.value = selectedThreadSpaceId \?\? ""/);
   assert.match(script, /button\.dataset\.spaceId = space\.id/);
   assert.match(script, /prefix\.textContent = "#"/);
+  assert.match(script, /function orderedSpaces\(spaces\)/);
+  assert.match(script, /function startChildSpaceCreation\(parent\)/);
+  assert.match(script, /accessMode: formData\.get\("accessMode"\)/);
+  assert.doesNotMatch(script, /announcementList|space\.type/);
   assert.match(script, /button\.addEventListener\("click", \(\) => showWorkspaceThreads\(space\.id\)\)/);
   assert.match(script, /portalAllSpaces\.addEventListener\("click", \(\) => showWorkspaceThreads\(\)\)/);
   assert.match(script, /setThreadSource\("\/api\/bookmarks", "目前沒有已加入書籤的討論串。"\)/);

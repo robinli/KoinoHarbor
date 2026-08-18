@@ -970,8 +970,7 @@ th {
 
 .thread-summary-list,
 .dashboard-rail,
-.status-summary,
-#announcement-list {
+.status-summary {
   display: grid;
   gap: 10px;
 }
@@ -1014,12 +1013,6 @@ th {
   grid-row: 1 / span 3;
   align-self: center;
   border: 1px solid rgb(13 102 89 / 18%);
-}
-
-#announcement-list button {
-  padding-inline: 0;
-  border-bottom: 1px solid var(--line);
-  border-radius: 0;
 }
 
 .status-summary > div {

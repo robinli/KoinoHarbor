@@ -94,11 +94,6 @@
                 </section>
                 <aside class="dashboard-rail">
                   <section class="dashboard-widget">
-                    <p class="eyebrow">Company</p>
-                    <h3>公司資訊</h3>
-                    <div id="announcement-list"></div>
-                  </section>
-                  <section class="dashboard-widget">
                     <p class="eyebrow">Status</p>
                     <h3>討論狀態</h3>
                     <div class="status-summary" id="status-summary"></div>
@@ -112,8 +107,10 @@
                 <h2 id="spaces-title">工作區管理</h2>
               </div>
               <form class="space-form" id="space-form" hidden>
+                <h3 id="space-form-title">建立頂層工作區</h3>
+                <input name="parentId" type="hidden">
                 <label>名稱<input name="name" required maxlength="80" placeholder="例如：ERP 導入專案"></label>
-                <label>類型<select name="type"><option value="department">Department</option><option value="project">Project</option></select></label>
+                <label>存取模式<select name="accessMode"><option value="inherited">繼承父層成員</option><option value="restricted">限制為此工作區成員</option></select></label>
                 <label class="space-description-field">說明<input name="description" maxlength="200" placeholder="工作區用途簡述"></label>
                 <button type="submit">建立工作區</button>
               </form>
@@ -244,7 +241,6 @@
           </div>
           <input name="spaceId" type="hidden">
           <label>名稱<input name="name" required maxlength="80"></label>
-          <label>類型<select name="type"><option value="department">Department</option><option value="project">Project</option></select></label>
           <label>說明<input name="description" maxlength="200"></label>
           <label>狀態<select name="archived"><option value="false">啟用</option><option value="true">封存</option></select></label>
           <p class="form-message" id="space-edit-message" role="alert"></p>

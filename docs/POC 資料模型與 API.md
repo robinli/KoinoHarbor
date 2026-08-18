@@ -5,8 +5,8 @@
 | 集合 | 主要欄位 | 說明 |
 |---|---|---|
 | `users` | email、displayName、role、active、稽核欄位 | 使用者與全域角色。 |
-| `spaces` | name、type、description、archived、稽核欄位 | 部門或專案討論空間。 |
-| `spaces/{spaceId}/members` | userId、role、稽核欄位 | 除 Admin 外，Member 與 Guest 都必須具備的 Space 明確成員關聯。 |
+| `spaces` | name、parentId、accessMode、description、archived、稽核欄位 | 最多兩階的工作區；`parentId` 為 `null` 表示頂層，子層可採繼承或限制存取。 |
+| `spaces/{spaceId}/members` | userId、role、稽核欄位 | 直接成員；預設繼承的子工作區也接受父層直接成員。 |
 | `threadStatuses` | name、sortOrder、active、稽核欄位 | 全公司共用討論狀態。 |
 | `threads` | spaceId、title、content、authorId、statusId、pinned、archived、稽核欄位 | 討論串。 |
 | `threads/{threadId}/replies` | authorId、content、稽核欄位 | 討論回覆。 |
@@ -26,8 +26,8 @@
 | POST | `/api/auth/logout` | 登出並清除 Session。 |
 | GET | `/api/auth/me` | 取得目前使用者。 |
 | GET／PATCH | `/api/users`、`/api/users/{id}` | Admin 使用者管理。 |
-| GET／POST | `/api/spaces` | Space 查詢與建立。 |
-| PATCH | `/api/spaces/{id}` | Space 修改與封存。 |
+| GET／POST | `/api/spaces` | 工作區查詢與建立；建立可傳入 `parentId`、`accessMode`。 |
+| PATCH | `/api/spaces/{id}` | 工作區名稱、說明與封存修改；階層與存取模式不可變更。 |
 | GET／POST／DELETE | `/api/spaces/{id}/members` | Space 成員管理。 |
 | GET／POST／PATCH | `/api/thread-statuses` | 討論狀態管理。 |
 | GET／POST／PATCH | `/api/threads` | 討論串查詢、建立與修改。 |
@@ -42,4 +42,8 @@
 
 - `AUTH_PROVIDER=development`：使用本機記憶體資料及 `data/uploads`，啟動時可載入示範資料。
 - `AUTH_PROVIDER=firebase`：使用 Firebase Authentication、Cloud Firestore 與 Cloud Storage；後端以 Application Default Credentials 連線。
+
+## 工作區遷移
+
+部署新版規則前，請在具有 Firebase Application Default Credentials 的環境執行 `npm run migrate:space-hierarchy -- --dry-run` 確認筆數，再執行 `npm run migrate:space-hierarchy`。遷移會保留工作區 ID 與所有關聯資料，將既有工作區設為頂層、預設為繼承存取，並移除舊 `type` 欄位。
 

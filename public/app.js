@@ -35,10 +35,10 @@ const portalAllSpaces = document.querySelector("#portal-all-spaces");
 const portalBookmarks = document.querySelector("#portal-bookmarks");
 const portalSpaceList = document.querySelector("#portal-space-list");
 const spacesTitle = document.querySelector("#spaces-title");
+const spaceFormTitle = document.querySelector("#space-form-title");
 const discussionTitle = document.querySelector("#discussion-title");
 const dashboardThreadList = document.querySelector("#dashboard-thread-list");
 const dashboardSpaceFilter = document.querySelector("#dashboard-space-filter");
-const announcementList = document.querySelector("#announcement-list");
 const statusSummary = document.querySelector("#status-summary");
 const threadSpaceSelect = document.querySelector("#thread-space-select");
 const statusEditDialog = document.querySelector("#status-edit-dialog");
@@ -152,7 +152,6 @@ function resetPortalData() {
   statusList.replaceChildren();
   threadList.replaceChildren();
   dashboardThreadList.replaceChildren();
-  announcementList.replaceChildren();
   statusSummary.replaceChildren();
   portalSpaceList.replaceChildren();
   threadSpaceFilter.replaceChildren();
@@ -161,6 +160,7 @@ function resetPortalData() {
   threadSpaceSelect.replaceChildren();
   threadStatusSelect.replaceChildren();
   threadForm.hidden = true;
+  resetSpaceCreation();
   selectedSidebarSpaceId = null;
   selectedThreadSpaceId = null;
   threadSourceUrl = null;
@@ -291,19 +291,6 @@ async function loadDashboard() {
     : allThreads;
   dashboardThreadList.replaceChildren(...threads.slice(0, 8).map(createThreadSummary));
   if (!threads.length) dashboardThreadList.textContent = "目前沒有可顯示的討論。";
-
-  const announcementSpace = availableSpaces.find((space) => !space.archived && (space.name.includes("公告") || space.type === "department"));
-  const announcements = announcementSpace ? allThreads.filter((thread) => thread.spaceId === announcementSpace.id).slice(0, 4) : [];
-  announcementList.replaceChildren(...announcements.map((thread) => {
-    const item = document.createElement("button");
-    item.type = "button";
-    item.textContent = thread.title;
-    item.addEventListener("click", async () => {
-      await showWorkspaceThreads(thread.spaceId);
-    });
-    return item;
-  }));
-  if (!announcements.length) announcementList.textContent = "目前沒有公司公告。";
 
   const counts = new Map();
   for (const thread of threads) {
@@ -480,7 +467,7 @@ function userInitials(displayName) {
 
 function renderSpaceOverview() {
   const selectedSpace = availableSpaces.find((space) => space.id === selectedSidebarSpaceId) ?? null;
-  const visibleSpaces = selectedSpace ? [selectedSpace] : availableSpaces;
+  const visibleSpaces = selectedSpace ? [selectedSpace] : orderedSpaces(availableSpaces);
 
   spacesTitle.textContent = selectedSpace?.name ?? "工作區管理";
   spaceForm.hidden = signedInUser?.role !== "admin" || Boolean(selectedSpace);
@@ -495,6 +482,36 @@ function renderSpaceOverview() {
 
 }
 
+function orderedSpaces(spaces) {
+  const visibleIds = new Set(spaces.map((space) => space.id));
+  const childrenByParent = new Map();
+  const roots = [];
+  for (const space of spaces) {
+    if (space.parentId && visibleIds.has(space.parentId)) {
+      const children = childrenByParent.get(space.parentId) ?? [];
+      children.push(space);
+      childrenByParent.set(space.parentId, children);
+    } else {
+      roots.push(space);
+    }
+  }
+  const byName = (left, right) => left.name.localeCompare(right.name);
+  return roots.sort(byName).flatMap((space) => [space, ...(childrenByParent.get(space.id) ?? []).sort(byName)]);
+}
+
+function startChildSpaceCreation(parent) {
+  spaceForm.elements.parentId.value = parent.id;
+  spaceFormTitle.textContent = `在「${parent.name}」下建立子工作區`;
+  spaceForm.hidden = false;
+  spaceForm.elements.name.focus();
+}
+
+function resetSpaceCreation() {
+  spaceForm.reset();
+  spaceForm.elements.parentId.value = "";
+  spaceFormTitle.textContent = "建立頂層工作區";
+}
+
 function showSpaceOverview(spaceId = null) {
   selectedSidebarSpaceId = spaceId;
   showPortalView("spaces");
@@ -507,12 +524,9 @@ function createSpaceCard(space) {
   const header = document.createElement("div");
   header.className = "space-item-header";
   const headingGroup = document.createElement("div");
-  const type = document.createElement("span");
-  type.className = "space-type";
-  type.textContent = space.type;
   const title = document.createElement("h3");
   title.textContent = space.name;
-  headingGroup.append(type, title);
+  headingGroup.append(title);
   header.append(headingGroup);
 
   if (signedInUser.role === "admin") {
@@ -524,6 +538,14 @@ function createSpaceCard(space) {
     const actions = document.createElement("div");
     actions.className = "space-item-actions";
     actions.append(editButton);
+    if (!space.parentId) {
+      const childButton = document.createElement("button");
+      childButton.type = "button";
+      childButton.className = "secondary-button";
+      childButton.textContent = "新增子工作區";
+      childButton.addEventListener("click", () => startChildSpaceCreation(space));
+      actions.append(childButton);
+    }
     header.append(actions);
   }
 
@@ -588,7 +610,6 @@ function createSpaceCard(space) {
 function openSpaceEditDialog(space) {
   spaceEditForm.elements.spaceId.value = space.id;
   spaceEditForm.elements.name.value = space.name;
-  spaceEditForm.elements.type.value = space.type;
   spaceEditForm.elements.description.value = space.description ?? "";
   spaceEditForm.elements.archived.value = String(Boolean(space.archived));
   setSystemMessage(spaceEditMessage, "");
@@ -606,13 +627,14 @@ async function loadSpaces() {
     availableSpaces = payload.spaces;
     const previousSpaceId = selectedThreadSpaceId ?? threadSpaceFilter.value;
     const previousCreateSpaceId = threadSpaceSelect.value;
-    const activeSpaces = payload.spaces.filter((space) => !space.archived);
+    const activeSpaces = orderedSpaces(payload.spaces.filter((space) => !space.archived));
+    const visibleIds = new Set(activeSpaces.map((space) => space.id));
     const spaceOptions = activeSpaces
       .filter((space) => !space.archived)
       .map((space) => {
         const option = document.createElement("option");
         option.value = space.id;
-        option.textContent = `${space.name} (${space.type})`;
+        option.textContent = `${space.parentId && visibleIds.has(space.parentId) ? "↳ " : ""}${space.name}`;
         return option;
       });
     const allSpacesOption = document.createElement("option");
@@ -639,7 +661,7 @@ async function loadSpaces() {
       prefix.setAttribute("aria-hidden", "true");
       prefix.textContent = "#";
       const label = document.createElement("span");
-      label.textContent = space.name;
+      label.textContent = `${space.parentId && visibleIds.has(space.parentId) ? "↳ " : ""}${space.name}`;
       button.append(prefix, label);
       button.dataset.spaceId = space.id;
       button.addEventListener("click", () => showWorkspaceThreads(space.id));
@@ -1546,13 +1568,14 @@ spaceForm.addEventListener("submit", async (event) => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        accessMode: formData.get("accessMode"),
         description: formData.get("description"),
         name: formData.get("name"),
-        type: formData.get("type"),
+        parentId: formData.get("parentId") || null,
       }),
     });
     await readJsonResponse(response);
-    spaceForm.reset();
+    resetSpaceCreation();
     await loadSpaces();
     await loadThreads();
   } catch (error) {
@@ -1614,7 +1637,6 @@ spaceEditForm.addEventListener("submit", async (event) => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         name: formData.get("name"),
-        type: formData.get("type"),
         description: formData.get("description"),
         archived: formData.get("archived") === "true",
       }),

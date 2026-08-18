@@ -323,15 +323,15 @@ test("admin can create and update spaces", async (context) => {
       Cookie: adminLogin.cookie,
     },
     body: JSON.stringify({
-      description: "財務部門討論",
+      description: "財務工作區討論",
       name: "財務部",
-      type: "department",
     }),
   });
   const createPayload = await createResponse.json();
 
   assert.equal(createResponse.status, 201);
-  assert.equal(createPayload.space.type, "department");
+  assert.equal(createPayload.space.parentId, null);
+  assert.equal(createPayload.space.accessMode, "inherited");
 
   const updateResponse = await fetch(`${testServer.baseUrl}/api/spaces/${createPayload.space.id}`, {
     method: "PATCH",
@@ -346,6 +346,44 @@ test("admin can create and update spaces", async (context) => {
   assert.equal(updateResponse.status, 200);
   assert.equal(updatePayload.space.archived, true);
   assert.equal(updatePayload.space.name, "財務與會計");
+});
+
+test("workspace hierarchy inherits access and restricts child access when requested", async (context) => {
+  const testServer = await startTestServer();
+  context.after(testServer.close);
+  const adminLogin = await login(testServer.baseUrl, "admin@example.test", "CorrectPassword!");
+  const memberLogin = await login(testServer.baseUrl, "member@example.test", "MemberPassword!");
+  const users = await (await fetch(`${testServer.baseUrl}/api/users`, { headers: { Cookie: adminLogin.cookie } })).json();
+  const member = users.users.find((user) => user.role === "member");
+
+  async function createSpace(body) {
+    const response = await fetch(`${testServer.baseUrl}/api/spaces`, {
+      method: "POST", headers: { "Content-Type": "application/json", Cookie: adminLogin.cookie }, body: JSON.stringify(body),
+    });
+    return { response, payload: await response.json() };
+  }
+
+  const { payload: parentPayload } = await createSpace({ name: "產品群組" });
+  const parent = parentPayload.space;
+  await fetch(`${testServer.baseUrl}/api/spaces/${parent.id}/members`, {
+    method: "POST", headers: { "Content-Type": "application/json", Cookie: adminLogin.cookie },
+    body: JSON.stringify({ role: "member", userId: member.id }),
+  });
+  const { payload: inheritedPayload } = await createSpace({ name: "新版網站", parentId: parent.id });
+  const { payload: restrictedPayload } = await createSpace({ name: "薪資整合", parentId: parent.id, accessMode: "restricted" });
+
+  const accessible = await (await fetch(`${testServer.baseUrl}/api/spaces`, { headers: { Cookie: memberLogin.cookie } })).json();
+  assert.deepEqual(accessible.spaces.map((space) => space.id), [parent.id, inheritedPayload.space.id]);
+  assert.equal((await fetch(`${testServer.baseUrl}/api/threads?spaceId=${inheritedPayload.space.id}`, { headers: { Cookie: memberLogin.cookie } })).status, 200);
+  assert.equal((await fetch(`${testServer.baseUrl}/api/threads?spaceId=${restrictedPayload.space.id}`, { headers: { Cookie: memberLogin.cookie } })).status, 403);
+
+  const nested = await createSpace({ name: "不允許第三層", parentId: inheritedPayload.space.id });
+  assert.equal(nested.response.status, 400);
+  const move = await fetch(`${testServer.baseUrl}/api/spaces/${parent.id}`, {
+    method: "PATCH", headers: { "Content-Type": "application/json", Cookie: adminLogin.cookie },
+    body: JSON.stringify({ parentId: inheritedPayload.space.id }),
+  });
+  assert.equal(move.status, 400);
 });
 
 test("admin can add and remove a Space member", async (context) => {
@@ -367,7 +405,7 @@ test("admin can add and remove a Space member", async (context) => {
       "Content-Type": "application/json",
       Cookie: adminLogin.cookie,
     },
-    body: JSON.stringify({ name: "客戶 A 專案", type: "project" }),
+    body: JSON.stringify({ name: "客戶 A 專案" }),
   });
   const { space } = await createResponse.json();
 
@@ -412,7 +450,7 @@ test("discussion status, thread, reply, bookmark and search API flow", async (co
   const spaceResponse = await fetch(`${testServer.baseUrl}/api/spaces`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Cookie: adminLogin.cookie },
-    body: JSON.stringify({ name: "ERP 導入", type: "project" }),
+    body: JSON.stringify({ name: "ERP 導入" }),
   });
   const { space } = await spaceResponse.json();
   const usersResponse = await fetch(`${testServer.baseUrl}/api/users`, {
@@ -601,7 +639,7 @@ test("guest cannot access a thread outside explicit Space membership", async (co
   const spaceResponse = await fetch(`${testServer.baseUrl}/api/spaces`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Cookie: adminLogin.cookie },
-    body: JSON.stringify({ name: "未受邀專案", type: "project" }),
+    body: JSON.stringify({ name: "未受邀專案" }),
   });
   const { space } = await spaceResponse.json();
 
@@ -626,7 +664,7 @@ test("member also requires explicit Space membership", async (context) => {
   const spaceResponse = await fetch(`${testServer.baseUrl}/api/spaces`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Cookie: adminLogin.cookie },
-    body: JSON.stringify({ name: "限制部門", type: "department" }),
+    body: JSON.stringify({ name: "限制工作區" }),
   });
   const { space } = await spaceResponse.json();
 
@@ -651,7 +689,7 @@ test("portal aggregate APIs return only explicitly accessible Spaces and threads
     const response = await fetch(`${testServer.baseUrl}/api/spaces`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Cookie: adminLogin.cookie },
-      body: JSON.stringify({ name, type: "project" }),
+      body: JSON.stringify({ name }),
     });
     return (await response.json()).space;
   }

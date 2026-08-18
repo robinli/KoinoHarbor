@@ -7,7 +7,7 @@ function iso(value) {
 
 function plain(document) {
   if (!document?.exists) return null;
-  const data = document.data();
+  const { type: _legacyType, ...data } = document.data();
   return {
     ...data,
     createdAt: iso(data.createdAt),
@@ -35,18 +35,33 @@ export function createFirestoreSpaceStore(app) {
   const firestore = getFirestore(app);
   const spaces = firestore.collection("spaces");
 
+  async function validateParent(parentId) {
+    if (parentId === undefined || parentId === null || parentId === "") return null;
+    if (typeof parentId !== "string" || !parentId.trim()) throw validationError("父工作區必須是有效的工作區 ID。");
+    const parent = plain(await spaces.doc(parentId).get());
+    if (!parent || parent.parentId !== null) throw validationError("父工作區不存在或不是頂層工作區。");
+    return parentId;
+  }
+
+  function accessMode(input) {
+    const value = input ?? "inherited";
+    if (!["inherited", "restricted"].includes(value)) throw validationError("工作區存取模式必須是 inherited 或 restricted。");
+    return value;
+  }
+
   return Object.freeze({
     async createSpace(input, actor) {
-      if (!["department", "project"].includes(input.type)) throw validationError("工作區類型必須是 department 或 project。");
       const reference = spaces.doc();
       const now = serverTimestamp();
+      const parentId = await validateParent(input.parentId);
       const data = {
+        accessMode: accessMode(input.accessMode),
         archived: false,
         createdAt: now,
         createdBy: actor.id,
         description: typeof input.description === "string" ? input.description.trim() : "",
         name: requiredText(input.name, "工作區名稱"),
-        type: input.type,
+        parentId,
         updatedAt: now,
         updatedBy: actor.id,
       };
@@ -59,24 +74,30 @@ export function createFirestoreSpaceStore(app) {
     },
 
     async canAccess(spaceId, user) {
-      if (!user?.active || !(await spaces.doc(spaceId).get()).exists) return false;
+      if (!user?.active) return false;
+      const space = plain(await spaces.doc(spaceId).get());
+      if (!space) return false;
       if (user.role === "admin") return true;
-      return (await spaces.doc(spaceId).collection("members").doc(user.id).get()).exists;
+      if ((await spaces.doc(spaceId).collection("members").doc(user.id).get()).exists) return true;
+      return space.parentId !== null
+        && space.accessMode === "inherited"
+        && (await spaces.doc(space.parentId).collection("members").doc(user.id).get()).exists;
     },
 
     async listSpaces(user) {
       const snapshot = await spaces.orderBy("name").get();
       if (user.role === "admin") return snapshot.docs.map(plain);
-      const membershipChecks = await Promise.all(snapshot.docs.map(async (space) => ({
-        membership: await space.ref.collection("members").doc(user.id).get(),
-        space,
+      const results = await Promise.all(snapshot.docs.map(async (space) => ({
+        space: plain(space),
+        accessible: await this.canAccess(space.id, user),
       })));
-      return membershipChecks.filter((item) => item.membership.exists).map((item) => plain(item.space));
+      return results.filter((item) => item.accessible).map((item) => item.space);
     },
 
     async updateSpace(spaceId, changes, actor) {
       const reference = spaces.doc(spaceId);
       if (!(await reference.get()).exists) return null;
+      if (changes.parentId !== undefined || changes.accessMode !== undefined) throw validationError("工作區階層與存取模式建立後不可變更。");
       const update = { updatedAt: serverTimestamp(), updatedBy: actor.id };
       if (changes.name !== undefined) update.name = requiredText(changes.name, "工作區名稱");
       if (changes.description !== undefined) update.description = typeof changes.description === "string" ? changes.description.trim() : (() => { throw validationError("工作區說明必須是文字。"); })();
