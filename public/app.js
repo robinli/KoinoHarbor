@@ -10,7 +10,6 @@ const userCreateForm = document.querySelector("#user-create-form");
 const userTableBody = document.querySelector("#user-table-body");
 const userAdminMessage = document.querySelector("#user-admin-message");
 const spacesPanel = document.querySelector("#spaces-panel");
-const spaceForm = document.querySelector("#space-form");
 const spaceList = document.querySelector("#space-list");
 const spaceMessage = document.querySelector("#space-message");
 const discussionPanel = document.querySelector("#discussion-panel");
@@ -35,7 +34,7 @@ const portalAllSpaces = document.querySelector("#portal-all-spaces");
 const portalBookmarks = document.querySelector("#portal-bookmarks");
 const portalSpaceList = document.querySelector("#portal-space-list");
 const spacesTitle = document.querySelector("#spaces-title");
-const spaceFormTitle = document.querySelector("#space-form-title");
+const createRootSpaceButton = document.querySelector("#create-root-space-button");
 const discussionTitle = document.querySelector("#discussion-title");
 const dashboardThreadList = document.querySelector("#dashboard-thread-list");
 const dashboardSpaceFilter = document.querySelector("#dashboard-space-filter");
@@ -49,6 +48,10 @@ const profileMessage = document.querySelector("#profile-message");
 const spaceEditDialog = document.querySelector("#space-edit-dialog");
 const spaceEditForm = document.querySelector("#space-edit-form");
 const spaceEditMessage = document.querySelector("#space-edit-message");
+const spaceDialogTitle = document.querySelector("#space-dialog-title");
+const spaceDialogSubmit = document.querySelector("#space-dialog-submit");
+const spaceAccessModeField = document.querySelector("#space-access-mode-field");
+const spaceArchivedField = document.querySelector("#space-archived-field");
 let availableUsers = [];
 let availableSpaces = [];
 let availableStatuses = [];
@@ -160,7 +163,6 @@ function resetPortalData() {
   threadSpaceSelect.replaceChildren();
   threadStatusSelect.replaceChildren();
   threadForm.hidden = true;
-  resetSpaceCreation();
   selectedSidebarSpaceId = null;
   selectedThreadSpaceId = null;
   threadSourceUrl = null;
@@ -470,7 +472,7 @@ function renderSpaceOverview() {
   const visibleSpaces = selectedSpace ? [selectedSpace] : orderedSpaces(availableSpaces);
 
   spacesTitle.textContent = selectedSpace?.name ?? "工作區管理";
-  spaceForm.hidden = signedInUser?.role !== "admin" || Boolean(selectedSpace);
+  createRootSpaceButton.hidden = signedInUser?.role !== "admin";
   spaceList.replaceChildren(...visibleSpaces.map(createSpaceCard));
 
   if (!visibleSpaces.length) {
@@ -499,19 +501,6 @@ function orderedSpaces(spaces) {
   return roots.sort(byName).flatMap((space) => [space, ...(childrenByParent.get(space.id) ?? []).sort(byName)]);
 }
 
-function startChildSpaceCreation(parent) {
-  spaceForm.elements.parentId.value = parent.id;
-  spaceFormTitle.textContent = `在「${parent.name}」下建立子工作區`;
-  spaceForm.hidden = false;
-  spaceForm.elements.name.focus();
-}
-
-function resetSpaceCreation() {
-  spaceForm.reset();
-  spaceForm.elements.parentId.value = "";
-  spaceFormTitle.textContent = "建立頂層工作區";
-}
-
 function showSpaceOverview(spaceId = null) {
   selectedSidebarSpaceId = spaceId;
   showPortalView("spaces");
@@ -520,7 +509,7 @@ function showSpaceOverview(spaceId = null) {
 
 function createSpaceCard(space) {
   const card = document.createElement("article");
-  card.className = `space-item${space.archived ? " is-archived" : ""}`;
+  card.className = `space-item${space.archived ? " is-archived" : ""}${space.parentId ? " is-child-space" : ""}`;
   const header = document.createElement("div");
   header.className = "space-item-header";
   const headingGroup = document.createElement("div");
@@ -534,7 +523,7 @@ function createSpaceCard(space) {
     editButton.type = "button";
     editButton.className = "edit-space-button";
     editButton.textContent = "編輯工作區";
-    editButton.addEventListener("click", () => openSpaceEditDialog(space));
+    editButton.addEventListener("click", () => openSpaceDialog({ space }));
     const actions = document.createElement("div");
     actions.className = "space-item-actions";
     actions.append(editButton);
@@ -543,7 +532,7 @@ function createSpaceCard(space) {
       childButton.type = "button";
       childButton.className = "secondary-button";
       childButton.textContent = "新增子工作區";
-      childButton.addEventListener("click", () => startChildSpaceCreation(space));
+      childButton.addEventListener("click", () => openSpaceDialog({ parent: space }));
       actions.append(childButton);
     }
     header.append(actions);
@@ -607,13 +596,23 @@ function createSpaceCard(space) {
   return card;
 }
 
-function openSpaceEditDialog(space) {
-  spaceEditForm.elements.spaceId.value = space.id;
-  spaceEditForm.elements.name.value = space.name;
-  spaceEditForm.elements.description.value = space.description ?? "";
-  spaceEditForm.elements.archived.value = String(Boolean(space.archived));
+function openSpaceDialog({ parent = null, space = null } = {}) {
+  const creating = space === null;
+  spaceEditForm.reset();
+  spaceEditForm.elements.spaceId.value = space?.id ?? "";
+  spaceEditForm.elements.parentId.value = parent?.id ?? "";
+  spaceEditForm.elements.name.value = space?.name ?? "";
+  spaceEditForm.elements.description.value = space?.description ?? "";
+  spaceEditForm.elements.archived.value = String(Boolean(space?.archived));
+  spaceAccessModeField.hidden = !creating;
+  spaceArchivedField.hidden = creating;
+  spaceDialogTitle.textContent = creating
+    ? (parent ? `在「${parent.name}」下新增子工作區` : "新增頂層工作區")
+    : "編輯工作區";
+  spaceDialogSubmit.textContent = creating ? "建立工作區" : "儲存變更";
   setSystemMessage(spaceEditMessage, "");
   spaceEditDialog.showModal();
+  spaceEditForm.elements.name.focus();
 }
 
 async function loadSpaces() {
@@ -1403,7 +1402,7 @@ function showUser(user) {
   document.body.classList.add("portal-active");
   portalAdminNav.hidden = user.role !== "admin";
   userAdmin.hidden = user.role !== "admin";
-  spaceForm.hidden = user.role !== "admin";
+  createRootSpaceButton.hidden = user.role !== "admin";
   statusForm.hidden = user.role !== "admin";
   updateDiscussionHeading();
   showPortalView("discussions");
@@ -1558,31 +1557,6 @@ async function logout() {
 
 portalLogoutButton.addEventListener("click", logout);
 
-spaceForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  spaceMessage.textContent = "";
-  const formData = new FormData(spaceForm);
-
-  try {
-    const response = await fetch("/api/spaces", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        accessMode: formData.get("accessMode"),
-        description: formData.get("description"),
-        name: formData.get("name"),
-        parentId: formData.get("parentId") || null,
-      }),
-    });
-    await readJsonResponse(response);
-    resetSpaceCreation();
-    await loadSpaces();
-    await loadThreads();
-  } catch (error) {
-    setSystemMessage(spaceMessage, error.message, "error");
-  }
-});
-
 statusForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const formData = new FormData(statusForm);
@@ -1632,26 +1606,37 @@ spaceEditForm.addEventListener("submit", async (event) => {
   submitButton.disabled = true;
   setSystemMessage(spaceEditMessage, "");
   try {
-    const response = await fetch(`/api/spaces/${encodeURIComponent(formData.get("spaceId"))}`, {
-      method: "PATCH",
+    const spaceId = formData.get("spaceId");
+    const creating = !spaceId;
+    const response = await fetch(creating ? "/api/spaces" : `/api/spaces/${encodeURIComponent(spaceId)}`, {
+      method: creating ? "POST" : "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name: formData.get("name"),
-        description: formData.get("description"),
-        archived: formData.get("archived") === "true",
-      }),
+      body: JSON.stringify(creating
+        ? {
+          accessMode: formData.get("accessMode"),
+          description: formData.get("description"),
+          name: formData.get("name"),
+          parentId: formData.get("parentId") || null,
+        }
+        : {
+          archived: formData.get("archived") === "true",
+          description: formData.get("description"),
+          name: formData.get("name"),
+        }),
     });
     await readJsonResponse(response);
     spaceEditDialog.close();
     await loadSpaces();
     if (!discussionPanel.hidden) await loadThreads();
-    setSystemMessage(spaceMessage, "工作區已更新。");
+    setSystemMessage(spaceMessage, creating ? "工作區已建立。" : "工作區已更新。");
   } catch (error) {
     setSystemMessage(spaceEditMessage, error.message, "error");
   } finally {
     submitButton.disabled = false;
   }
 });
+
+createRootSpaceButton.addEventListener("click", () => openSpaceDialog());
 
 threadForm.addEventListener("submit", async (event) => {
   event.preventDefault();

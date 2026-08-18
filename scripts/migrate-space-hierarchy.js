@@ -4,11 +4,11 @@ import { loadConfig } from "../src/config.js";
 import { getFirebaseApp } from "../src/firebase-auth.js";
 
 const dryRun = process.argv.includes("--dry-run");
-const config = loadConfig();
-
-if (config.authProvider !== "firebase") {
-  throw new Error("遷移僅能在 AUTH_PROVIDER=firebase 時執行。");
-}
+const config = loadConfig({
+  ...process.env,
+  AUTH_PROVIDER: "firebase",
+  FIREBASE_API_KEY: process.env.FIREBASE_API_KEY || "migration-not-used",
+});
 
 const firestore = getFirestore(getFirebaseApp(config));
 const spaces = await firestore.collection("spaces").get();

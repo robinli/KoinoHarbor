@@ -36,7 +36,7 @@ service cloud.firestore {
 
     function validSpaceParent() {
       return request.resource.data.parentId == null
-        || (get(/databases/$(database)/documents/spaces/$(request.resource.data.parentId)).exists()
+        || (exists(/databases/$(database)/documents/spaces/$(request.resource.data.parentId))
           && get(/databases/$(database)/documents/spaces/$(request.resource.data.parentId)).data.parentId == null);
     }
 
