@@ -45,6 +45,11 @@ service cloud.firestore {
         || request.resource.data.accessMode == 'restricted';
     }
 
+    function validSpaceSortOrder() {
+      return request.resource.data.sortOrder is int
+        && request.resource.data.sortOrder >= 0;
+    }
+
     function validAuditOnCreate() {
       return request.resource.data.createdBy == request.auth.uid
         && request.resource.data.updatedBy == request.auth.uid
@@ -67,10 +72,11 @@ service cloud.firestore {
 
     match /spaces/{spaceId} {
       allow read: if canAccessSpace(spaceId);
-      allow create: if isAdmin() && validAuditOnCreate() && validSpaceParent() && validSpaceAccessMode();
+      allow create: if isAdmin() && validAuditOnCreate() && validSpaceParent() && validSpaceAccessMode() && validSpaceSortOrder();
       allow update: if isAdmin() && validAuditOnUpdate()
         && request.resource.data.parentId == resource.data.parentId
-        && request.resource.data.accessMode == resource.data.accessMode;
+        && request.resource.data.accessMode == resource.data.accessMode
+        && validSpaceSortOrder();
       allow delete: if false;
 
       match /members/{userId} {

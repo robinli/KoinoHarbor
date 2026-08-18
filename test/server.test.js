@@ -325,6 +325,7 @@ test("admin can create and update spaces", async (context) => {
     body: JSON.stringify({
       description: "財務工作區討論",
       name: "財務部",
+      sortOrder: 12,
     }),
   });
   const createPayload = await createResponse.json();
@@ -332,6 +333,7 @@ test("admin can create and update spaces", async (context) => {
   assert.equal(createResponse.status, 201);
   assert.equal(createPayload.space.parentId, null);
   assert.equal(createPayload.space.accessMode, "inherited");
+  assert.equal(createPayload.space.sortOrder, 12);
 
   const updateResponse = await fetch(`${testServer.baseUrl}/api/spaces/${createPayload.space.id}`, {
     method: "PATCH",
@@ -339,13 +341,38 @@ test("admin can create and update spaces", async (context) => {
       "Content-Type": "application/json",
       Cookie: adminLogin.cookie,
     },
-    body: JSON.stringify({ archived: true, name: "財務與會計" }),
+    body: JSON.stringify({ archived: true, name: "財務與會計", sortOrder: 3 }),
   });
   const updatePayload = await updateResponse.json();
 
   assert.equal(updateResponse.status, 200);
   assert.equal(updatePayload.space.archived, true);
   assert.equal(updatePayload.space.name, "財務與會計");
+  assert.equal(updatePayload.space.sortOrder, 3);
+});
+
+test("spaces sort each hierarchy level by sortOrder then name", async (context) => {
+  const testServer = await startTestServer();
+  context.after(testServer.close);
+  const adminLogin = await login(testServer.baseUrl, "admin@example.test", "CorrectPassword!");
+
+  async function createSpace(body) {
+    const response = await fetch(`${testServer.baseUrl}/api/spaces`, {
+      method: "POST", headers: { "Content-Type": "application/json", Cookie: adminLogin.cookie }, body: JSON.stringify(body),
+    });
+    return (await response.json()).space;
+  }
+
+  const laterParent = await createSpace({ name: "Zeta", sortOrder: 1 });
+  const firstParent = await createSpace({ name: "Alpha", sortOrder: 1 });
+  await createSpace({ name: "Child Z", parentId: firstParent.id, sortOrder: 1 });
+  await createSpace({ name: "Child A", parentId: firstParent.id, sortOrder: 1 });
+  const earlierParent = await createSpace({ name: "Later by name", sortOrder: 0 });
+
+  const response = await fetch(`${testServer.baseUrl}/api/spaces`, { headers: { Cookie: adminLogin.cookie } });
+  const { spaces } = await response.json();
+
+  assert.deepEqual(spaces.map((space) => space.name), ["Later by name", "Alpha", "Zeta", "Child A", "Child Z"]);
 });
 
 test("workspace hierarchy inherits access and restricts child access when requested", async (context) => {

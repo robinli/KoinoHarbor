@@ -497,8 +497,8 @@ function orderedSpaces(spaces) {
       roots.push(space);
     }
   }
-  const byName = (left, right) => left.name.localeCompare(right.name);
-  return roots.sort(byName).flatMap((space) => [space, ...(childrenByParent.get(space.id) ?? []).sort(byName)]);
+  const bySortOrderThenName = (left, right) => (left.sortOrder ?? 0) - (right.sortOrder ?? 0) || left.name.localeCompare(right.name);
+  return roots.sort(bySortOrderThenName).flatMap((space) => [space, ...(childrenByParent.get(space.id) ?? []).sort(bySortOrderThenName)]);
 }
 
 function showSpaceOverview(spaceId = null) {
@@ -539,7 +539,7 @@ function createSpaceCard(space) {
   }
 
   const description = document.createElement("p");
-  description.textContent = space.description || "尚未提供說明。";
+  description.textContent = `排序:${space.sortOrder ?? 0} ${space.description || "尚未提供說明。"}`;
   card.append(header, description);
 
   if (signedInUser.role === "admin") {
@@ -602,6 +602,7 @@ function openSpaceDialog({ parent = null, space = null } = {}) {
   spaceEditForm.elements.spaceId.value = space?.id ?? "";
   spaceEditForm.elements.parentId.value = parent?.id ?? "";
   spaceEditForm.elements.name.value = space?.name ?? "";
+  spaceEditForm.elements.sortOrder.value = space?.sortOrder ?? 0;
   spaceEditForm.elements.description.value = space?.description ?? "";
   spaceEditForm.elements.archived.value = String(Boolean(space?.archived));
   spaceAccessModeField.hidden = !creating;
@@ -660,8 +661,9 @@ async function loadSpaces() {
       prefix.setAttribute("aria-hidden", "true");
       prefix.textContent = "#";
       const label = document.createElement("span");
-      label.textContent = `${space.parentId && visibleIds.has(space.parentId) ? "↳ " : ""}${space.name}`;
+      label.textContent = space.name;
       button.append(prefix, label);
+      button.classList.toggle("is-child-space-link", Boolean(space.parentId && visibleIds.has(space.parentId)));
       button.dataset.spaceId = space.id;
       button.addEventListener("click", () => showWorkspaceThreads(space.id));
       return button;
@@ -1617,11 +1619,13 @@ spaceEditForm.addEventListener("submit", async (event) => {
           description: formData.get("description"),
           name: formData.get("name"),
           parentId: formData.get("parentId") || null,
+          sortOrder: Number.parseInt(formData.get("sortOrder"), 10),
         }
         : {
           archived: formData.get("archived") === "true",
           description: formData.get("description"),
           name: formData.get("name"),
+          sortOrder: Number.parseInt(formData.get("sortOrder"), 10),
         }),
     });
     await readJsonResponse(response);
