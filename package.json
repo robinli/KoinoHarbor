@@ -8,19 +8,25 @@
     "node": ">=22"
   },
   "scripts": {
-    "check": "node --check src/auth.js && node --check src/attachments.js && node --check src/config.js && node --check src/discussions.js && node --check src/firebase-auth.js && node --check src/firebase-stores.js && node --check src/server.js && node --check src/spaces.js && node --check scripts/migrate-space-hierarchy.js && node --check public/app.js",
+    "check": "node --check src/auth.js && node --check src/attachments.js && node --check src/config.js && node --check src/discussions.js && node --check src/emoji.js && node --check src/firebase-auth.js && node --check src/firebase-stores.js && node --check src/server.js && node --check src/spaces.js && node --check scripts/migrate-space-hierarchy.js && node --check public/app.js",
     "dev": "node --watch src/server.js",
     "migrate:space-hierarchy": "node scripts/migrate-space-hierarchy.js",
     "start": "node src/server.js",
     "test": "node --test",
+    "test:rules": "firebase emulators:exec --only firestore \"node --test test/firestore-rules.test.js\"",
     "verify": "npm run check && npm test"
   },
   "dependencies": {
     "bootstrap": "^5.3.8",
     "bootstrap-icons": "^1.13.1",
+    "emoji-picker-element": "1.29.1",
+    "emoji-picker-element-data": "1.8.0",
     "firebase-admin": "^14.2.0"
   },
   "overrides": {
     "uuid": "^11.1.1"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "5.0.1"
   }
 }

@@ -926,6 +926,7 @@ textarea.form-control {
 }
 
 .thread-header-button.btn,
+.reaction-action-button.btn,
 .thread-menu-toggle.btn {
   display: inline-flex;
   min-height: 32px;
@@ -937,6 +938,148 @@ textarea.form-control {
   border: 0;
   border-radius: 7px;
   background: transparent;
+}
+
+.reaction-action-button.btn {
+  position: relative;
+  min-width: 32px;
+  padding: 5px 7px;
+}
+
+.reaction-add-plus {
+  position: absolute;
+  top: 0;
+  right: 2px;
+  font-size: 0.68rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.reaction-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  align-items: center;
+  margin-top: 8px;
+}
+
+.reaction-chip.btn,
+.reaction-add-button.btn {
+  min-height: 28px;
+  border: 1px solid var(--kh-line-strong);
+  border-radius: 999px;
+  background: var(--kh-surface);
+}
+
+.reaction-chip.btn {
+  position: relative;
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  padding: 3px 9px;
+  color: #3f3d40;
+}
+
+.reaction-chip.btn:hover,
+.reaction-chip.btn:focus-visible {
+  border-color: var(--kh-purple);
+  background: var(--kh-purple-soft);
+}
+
+.reaction-chip.is-selected.btn {
+  color: var(--kh-purple-dark);
+  border-color: var(--kh-purple);
+  background: var(--kh-purple-soft);
+}
+
+.reaction-emoji {
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.reaction-count {
+  min-width: 1ch;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.reaction-tooltip {
+  position: absolute;
+  z-index: 40;
+  bottom: calc(100% + 7px);
+  left: 50%;
+  display: none;
+  width: max-content;
+  max-width: min(260px, calc(100vw - 24px));
+  padding: 5px 8px;
+  color: #fff;
+  border-radius: 6px;
+  background: #1d1c1d;
+  box-shadow: 0 4px 12px rgb(0 0 0 / 18%);
+  font-size: 0.75rem;
+  font-weight: 600;
+  transform: translateX(-50%);
+  white-space: normal;
+}
+
+.reaction-chip:hover .reaction-tooltip,
+.reaction-chip:focus-visible .reaction-tooltip {
+  display: block;
+}
+
+.reaction-add-button.btn {
+  position: relative;
+  min-width: 34px;
+  padding: 3px 8px;
+  color: #514f53;
+}
+
+.emoji-picker-popover {
+  position: fixed;
+  z-index: 100;
+  width: min(365px, calc(100vw - 16px));
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid #d6d6d6;
+  border-radius: 9px;
+  background: var(--kh-surface);
+  box-shadow: 0 5px 20px rgb(29 28 29 / 24%);
+}
+
+.emoji-picker-popover emoji-picker {
+  width: 100%;
+  height: min(440px, calc(100vh - 24px));
+  --background: #fff;
+  --border-color: transparent;
+  --border-radius: 0;
+  --border-size: 0;
+  --button-active-background: #dfe9f2;
+  --button-hover-background: #f1f1f1;
+  --category-emoji-padding: 0.48rem;
+  --category-emoji-size: 1.12rem;
+  --category-font-color: #3f3d40;
+  --emoji-padding: 0.43rem;
+  --emoji-size: 1.38rem;
+  --indicator-color: #1264a3;
+  --indicator-height: 2px;
+  --input-border-color: #868686;
+  --input-border-radius: 5px;
+  --input-font-color: #1d1c1d;
+  --input-font-size: 0.94rem;
+  --input-padding: 0.42rem;
+  --num-columns: 9;
+  --outline-color: #1264a3;
+  --outline-size: 2px;
+}
+
+@media (max-width: 420px) {
+  .emoji-picker-popover {
+    width: calc(100vw - 16px);
+  }
+
+  .emoji-picker-popover emoji-picker {
+    height: min(430px, calc(100vh - 16px));
+  }
 }
 
 .reply-action-menu {
@@ -1252,6 +1395,11 @@ textarea.form-control {
 .reply-attachment-list {
   grid-column: 1;
   margin-top: 4px;
+}
+
+.reply-message > .reaction-list {
+  grid-column: 1;
+  margin-top: 2px;
 }
 
 .reply-message-actions {

@@ -22,6 +22,9 @@ test("security rules deny unmatched access and enforce hierarchical Space member
   assert.match(firestoreRules, /function inheritsParentAccess/);
   assert.match(firestoreRules, /space\.data\.accessMode == 'inherited'/);
   assert.match(firestoreRules, /function validSpaceParent/);
+  assert.match(firestoreRules, /match \/messageReactions\/\{reactionId\}/);
+  assert.match(firestoreRules, /allow read: if canAccessSpace\(spaceId\)/);
+  assert.match(firestoreRules, /allow create, update, delete: if false/);
   assert.match(storageRules, /request\.resource\.size <= 20 \* 1024 \* 1024/);
   assert.match(storageRules, /match \/\{allPaths=\*\*\}/);
   assert.match(storageRules, /allow read, write: if false/);

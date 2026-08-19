@@ -184,6 +184,33 @@ test("Firebase ID token endpoint exchanges a verified session cookie", async (co
   assert.match(response.headers.get("set-cookie"), /koino_session=firebase-session-cookie/);
 });
 
+test("Firebase client token endpoint requires a session and returns a custom token", async (context) => {
+  const firebaseUser = { active: true, displayName: "Cloud User", email: "cloud@example.test", id: "cloud-1", role: "member" };
+  const testServer = await startTestServer({
+    authService: {
+      provider: "firebase",
+      async createClientToken(user) {
+        assert.equal(user.id, firebaseUser.id);
+        return "firebase-custom-token";
+      },
+      async verifySession(token) {
+        return token === "valid-session" ? firebaseUser : null;
+      },
+    },
+    config: { authProvider: "firebase" },
+  });
+  context.after(testServer.close);
+
+  const unauthenticated = await fetch(`${testServer.baseUrl}/api/auth/firebase-client-token`, { method: "POST" });
+  assert.equal(unauthenticated.status, 401);
+  const response = await fetch(`${testServer.baseUrl}/api/auth/firebase-client-token`, {
+    method: "POST",
+    headers: { Cookie: "koino_session=valid-session" },
+  });
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { token: "firebase-custom-token" });
+});
+
 test("admin can list users and update another account", async (context) => {
   const testServer = await startTestServer();
   context.after(testServer.close);
@@ -658,6 +685,88 @@ test("discussion status, thread, reply, bookmark and search API flow", async (co
   assert.equal(deletedAttachmentDownload.status, 404);
 });
 
+test("message reaction API aggregates users, toggles idempotently and enforces access", async (context) => {
+  const testServer = await startTestServer();
+  context.after(testServer.close);
+  const adminLogin = await login(testServer.baseUrl, "admin@example.test", "CorrectPassword!");
+  const memberLogin = await login(testServer.baseUrl, "member@example.test", "MemberPassword!");
+  const guestLogin = await login(testServer.baseUrl, "guest@example.test", "GuestPassword!");
+  const users = await (await fetch(`${testServer.baseUrl}/api/users`, { headers: { Cookie: adminLogin.cookie } })).json();
+  const member = users.users.find((user) => user.email === "member@example.test");
+  const spaceResponse = await fetch(`${testServer.baseUrl}/api/spaces`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Cookie: adminLogin.cookie },
+    body: JSON.stringify({ name: "Reaction Space" }),
+  });
+  const { space } = await spaceResponse.json();
+  await fetch(`${testServer.baseUrl}/api/spaces/${space.id}/members`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Cookie: adminLogin.cookie },
+    body: JSON.stringify({ role: "member", userId: member.id }),
+  });
+  const threadResponse = await fetch(`${testServer.baseUrl}/api/threads`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Cookie: memberLogin.cookie },
+    body: JSON.stringify({ content: "Reaction content", spaceId: space.id, title: "Reaction thread" }),
+  });
+  const { thread } = await threadResponse.json();
+  assert.deepEqual(thread.reactions, []);
+  const originalUpdatedAt = thread.updatedAt;
+  const endpoint = `${testServer.baseUrl}/api/threads/${thread.id}/reactions`;
+  const react = (cookie, body) => fetch(endpoint, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", Cookie: cookie },
+    body: JSON.stringify(body),
+  });
+  const threadReaction = { emoji: "✅", messageId: thread.id, messageType: "thread", reacted: true };
+
+  let response = await react(memberLogin.cookie, threadReaction);
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).reactions[0].count, 1);
+  response = await react(memberLogin.cookie, threadReaction);
+  assert.equal((await response.json()).reactions[0].count, 1);
+  response = await react(adminLogin.cookie, threadReaction);
+  const aggregate = (await response.json()).reactions[0];
+  assert.equal(aggregate.count, 2);
+  assert.equal(aggregate.reactedByCurrentUser, true);
+  assert.deepEqual(aggregate.reactors.map((reactor) => reactor.displayName).sort(), ["admin", "member"]);
+
+  const forbidden = await react(guestLogin.cookie, threadReaction);
+  assert.equal(forbidden.status, 403);
+  const invalid = await react(memberLogin.cookie, { ...threadReaction, emoji: "not-an-emoji" });
+  assert.equal(invalid.status, 400);
+  const afterThreadReactions = await (await fetch(`${testServer.baseUrl}/api/threads/${thread.id}`, {
+    headers: { Cookie: adminLogin.cookie },
+  })).json();
+  assert.equal(afterThreadReactions.thread.updatedAt, originalUpdatedAt);
+
+  const replyResponse = await fetch(`${testServer.baseUrl}/api/threads/${thread.id}/replies`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Cookie: memberLogin.cookie },
+    body: JSON.stringify({ content: "Reply reaction target" }),
+  });
+  const { reply } = await replyResponse.json();
+  response = await react(memberLogin.cookie, { emoji: "❤️", messageId: reply.id, messageType: "reply", reacted: true });
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).reactions[0].emoji, "❤️");
+
+  const details = await (await fetch(`${testServer.baseUrl}/api/threads/${thread.id}`, {
+    headers: { Cookie: adminLogin.cookie },
+  })).json();
+  assert.equal(details.thread.reactions[0].count, 2);
+  assert.equal(details.replies[0].reactions[0].count, 1);
+
+  response = await react(memberLogin.cookie, { ...threadReaction, reacted: false });
+  assert.equal((await response.json()).reactions[0].count, 1);
+  await fetch(`${testServer.baseUrl}/api/threads/${thread.id}/replies/${reply.id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", Cookie: memberLogin.cookie },
+    body: JSON.stringify({ deleted: true }),
+  });
+  response = await react(memberLogin.cookie, { emoji: "✅", messageId: reply.id, messageType: "reply", reacted: true });
+  assert.equal(response.status, 404);
+});
+
 test("unread messages notify effective workspace members and support read and unread state", async (context) => {
   const testServer = await startTestServer({
     config: {
@@ -892,6 +1001,25 @@ test("GET / serves the application shell", async (context) => {
   assert.equal(faviconResponse.status, 200);
   assert.match(faviconResponse.headers.get("content-type"), /image\/svg\+xml/);
   assert.match(await faviconResponse.text(), /⚓/);
+
+  const emojiPickerResponse = await fetch(`${testServer.baseUrl}/vendor/emoji-picker/picker.js`);
+  assert.equal(emojiPickerResponse.status, 200);
+  assert.match(emojiPickerResponse.headers.get("content-type"), /javascript/);
+  assert.match(await emojiPickerResponse.text(), /class Picker/);
+
+  const emojiDataResponse = await fetch(`${testServer.baseUrl}/vendor/emoji-data.json`);
+  assert.equal(emojiDataResponse.status, 200);
+  assert.match(emojiDataResponse.headers.get("content-type"), /application\/json/);
+  assert.match(await emojiDataResponse.text(), /笑臉/);
+  const emojiDataHeadResponse = await fetch(`${testServer.baseUrl}/vendor/emoji-data.json`, { method: "HEAD" });
+  assert.equal(emojiDataHeadResponse.status, 200);
+
+  const csp = response.headers.get("content-security-policy");
+  assert.match(csp, /https:\/\/www\.gstatic\.com/);
+  assert.match(csp, /https:\/\/firestore\.googleapis\.com/);
+  assert.match(csp, /style-src 'self' 'unsafe-inline'/);
+  assert.match(csp, /script-src 'self' https:\/\/www\.gstatic\.com/);
+  assert.doesNotMatch(csp, /script-src[^;]*'unsafe-inline'/);
 });
 
 test("unknown paths return a JSON 404", async (context) => {

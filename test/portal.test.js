@@ -132,7 +132,15 @@ test("portal client aggregates accessible threads and disables creation without 
   assert.match(script, /timestamp\.title = formatFullDateTime\(message\.updatedAt\)/);
   assert.match(script, /edited\.textContent = " \(edited\)"/);
   assert.match(script, /titleLine\.append\(title, createAuthorMetadata\(thread\)\)/);
-  assert.match(script, /message\.append\(authorMeta, content, attachmentList, actions\)/);
+  assert.match(script, /message\.append\(authorMeta, content, attachmentList, reactionList, actions\)/);
+  assert.match(script, /className = "reaction-list"/);
+  assert.match(script, /className = `reaction-chip/);
+  assert.match(script, /新增表情符號/);
+  assert.match(script, /emoji-picker\/picker\.js/);
+  assert.match(script, /firebasejs\/12\.17\.0\/firebase-firestore\.js/);
+  assert.match(script, /function startReactionRealtime\(/);
+  assert.match(script, /stopReactionRealtime\(\)/);
+  assert.match(script, /applySlackInspiredEmojiPickerStyles/);
   assert.match(script, /className = "message-edit-form thread-inline-editor"/);
   assert.match(script, /fetch\(`\/api\/attachments\/\$\{encodeURIComponent\(attachmentId\)\}`,[\s\S]*?method: "DELETE"/);
   assert.match(script, /await uploadAttachments\(payload\.thread\.id, threadCreationFilePicker\.files\)/);
@@ -173,6 +181,10 @@ test("portal styles preserve hidden state, keyboard focus and mobile single-colu
   assert.match(modernStyles, /\.workspace-unread-dot\s*\{/);
   assert.match(modernStyles, /\.message-unread-dot\s*\{/);
   assert.match(modernStyles, /\.reply-action-menu\s*\{/);
+  assert.match(modernStyles, /\.reaction-list\s*\{/);
+  assert.match(modernStyles, /\.reaction-chip\.is-selected\.btn\s*\{/);
+  assert.match(modernStyles, /\.emoji-picker-popover\s*\{/);
+  assert.match(modernStyles, /--num-columns:\s*9/);
   assert.match(modernStyles, /\.reply-menu-item\.btn\s*\{[^}]*color:\s*#514f53[^}]*background:\s*transparent/s);
   assert.match(modernStyles, /\.reply-menu-item\.btn:hover,[\s\S]*?background:\s*var\(--kh-surface-soft\)/s);
   assert.match(modernStyles, /\.portal-nav-secondary\s*\{[^}]*border-top:\s*0;/s);

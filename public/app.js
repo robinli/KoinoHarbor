@@ -68,6 +68,13 @@ const unreadMessageTargets = new WeakMap();
 const pendingUnreadReads = new Map();
 let unreadReadTimer = null;
 const messageTimers = new WeakMap();
+let emojiPickerHost = null;
+let emojiPickerTarget = null;
+let emojiPickerTrigger = null;
+let firebaseRealtimeContext = null;
+let reactionListenerUnsubscribers = [];
+let reactionRealtimeGeneration = 0;
+const realtimeReactionDocuments = new Map();
 
 function setSystemMessage(messageElement, message, type = "success") {
   const existingTimer = messageTimers.get(messageElement);
@@ -142,17 +149,33 @@ document.addEventListener("click", (event) => {
   for (const menu of document.querySelectorAll(".thread-action-menu[open], .reply-action-menu[open]")) {
     if (!menu.contains(event.target)) menu.removeAttribute("open");
   }
+  if (emojiPickerHost && !emojiPickerHost.contains(event.target) && !emojiPickerTrigger?.contains(event.target)) {
+    closeEmojiPicker();
+  }
 });
 
 document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;
+  if (emojiPickerHost) {
+    closeEmojiPicker();
+    return;
+  }
   const menu = document.querySelector(".thread-action-menu[open], .reply-action-menu[open]");
   if (!menu) return;
   menu.removeAttribute("open");
   menu.querySelector("summary")?.focus();
 });
 
+window.addEventListener("resize", positionEmojiPicker);
+window.addEventListener("scroll", positionEmojiPicker, true);
+
 function resetPortalData() {
+  closeEmojiPicker();
+  stopReactionRealtime();
+  if (firebaseRealtimeContext) {
+    void firebaseRealtimeContext.modules.signOut(firebaseRealtimeContext.auth).catch(() => {});
+    firebaseRealtimeContext = null;
+  }
   availableUsers = [];
   availableSpaces = [];
   availableStatuses = [];
@@ -1053,6 +1076,395 @@ function createStatusSelect(selectedStatusId) {
   return select;
 }
 
+const emojiPickerI18n = {
+  categoriesLabel: "分類",
+  emojiUnsupportedMessage: "此瀏覽器不支援彩色 Emoji。",
+  favoritesLabel: "常用",
+  loadingMessage: "載入中…",
+  networkErrorMessage: "無法載入 Emoji。",
+  regionLabel: "表情符號選擇器",
+  searchDescription: "有搜尋結果時，可用上下方向鍵選取並按 Enter 套用。",
+  searchLabel: "搜尋表情符號",
+  searchResultsLabel: "搜尋結果",
+  skinToneDescription: "展開後可用上下方向鍵選取並按 Enter 套用。",
+  skinToneLabel: "選擇膚色，目前為 {skinTone}",
+  skinTonesLabel: "膚色",
+  skinTones: ["預設", "淺色", "中淺色", "中色", "中深色", "深色"],
+  categories: {
+    custom: "自訂",
+    "smileys-emotion": "表情與情緒",
+    "people-body": "人物與身體",
+    "animals-nature": "動物與自然",
+    "food-drink": "食物與飲料",
+    "travel-places": "旅遊與地點",
+    activities: "活動",
+    objects: "物品",
+    symbols: "符號",
+    flags: "旗幟",
+  },
+};
+
+function reactionMessageKey(messageType, messageId) {
+  return `${messageType}:${messageId}`;
+}
+
+function summarizeReactionDocuments(documents) {
+  const groups = new Map();
+  for (const reaction of documents) {
+    const group = groups.get(reaction.emoji) ?? {
+      createdAt: reaction.createdAt?.toDate?.().toISOString?.() ?? reaction.createdAt ?? "",
+      emoji: reaction.emoji,
+      reactors: [],
+    };
+    group.reactors.push({ displayName: reaction.userDisplayName ?? "Unknown user", userId: reaction.userId });
+    groups.set(reaction.emoji, group);
+  }
+  return [...groups.values()]
+    .sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.emoji.localeCompare(right.emoji))
+    .map(({ createdAt: _createdAt, emoji, reactors }) => ({
+      count: reactors.length,
+      emoji,
+      reactedByCurrentUser: reactors.some((reactor) => reactor.userId === signedInUser?.id),
+      reactors,
+    }));
+}
+
+function updateReactionContainers(messageType, messageId, reactions) {
+  const key = reactionMessageKey(messageType, messageId);
+  for (const container of document.querySelectorAll(`[data-reaction-message-key="${CSS.escape(key)}"]`)) {
+    renderReactionList(container, reactions);
+  }
+}
+
+async function setReaction({ emoji, messageId, messageType, reacted, threadId }) {
+  const response = await fetch(`/api/threads/${encodeURIComponent(threadId)}/reactions`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ emoji, messageId, messageType, reacted }),
+  });
+  const payload = await readJsonResponse(response);
+  updateReactionContainers(messageType, messageId, payload.reactions);
+  return payload.reactions;
+}
+
+function createAddReactionButton(target, compact = false) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = compact ? "reaction-add-button is-compact" : "reaction-action-button";
+  button.setAttribute("aria-label", "新增表情符號");
+  button.title = "新增表情符號";
+  const icon = document.createElement("i");
+  icon.className = "bi bi-emoji-smile";
+  icon.setAttribute("aria-hidden", "true");
+  const plus = document.createElement("span");
+  plus.className = "reaction-add-plus";
+  plus.textContent = "+";
+  button.append(icon, plus);
+  button.addEventListener("click", () => openEmojiPicker(button, target));
+  return button;
+}
+
+function renderReactionList(container, reactions = []) {
+  container.replaceChildren();
+  container.hidden = reactions.length === 0;
+  for (const reaction of reactions) {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = `reaction-chip${reaction.reactedByCurrentUser ? " is-selected" : ""}`;
+    const reactorNames = reaction.reactors.map((reactor) => reactor.displayName).join("、");
+    chip.setAttribute(
+      "aria-label",
+      `${reactorNames} 對此訊息標示 ${reaction.emoji}；點擊${reaction.reactedByCurrentUser ? "取消" : "加入"}`,
+    );
+    const emoji = document.createElement("span");
+    emoji.className = "reaction-emoji";
+    emoji.textContent = reaction.emoji;
+    const count = document.createElement("span");
+    count.className = "reaction-count";
+    count.textContent = String(reaction.count);
+    const tooltip = document.createElement("span");
+    tooltip.className = "reaction-tooltip";
+    tooltip.setAttribute("role", "tooltip");
+    tooltip.textContent = reactorNames;
+    chip.append(emoji, count, tooltip);
+    chip.addEventListener("click", async () => {
+      chip.disabled = true;
+      try {
+        await setReaction({
+          emoji: reaction.emoji,
+          messageId: container.dataset.messageId,
+          messageType: container.dataset.messageType,
+          reacted: !reaction.reactedByCurrentUser,
+          threadId: container.dataset.threadId,
+        });
+      } catch (error) {
+        setSystemMessage(discussionMessage, error.message, "error");
+        chip.disabled = false;
+      }
+    });
+    container.append(chip);
+  }
+  if (reactions.length) {
+    container.append(createAddReactionButton({
+      messageId: container.dataset.messageId,
+      messageType: container.dataset.messageType,
+      threadId: container.dataset.threadId,
+    }, true));
+  }
+}
+
+function createReactionList(threadId, messageType, messageId, reactions = []) {
+  const container = document.createElement("div");
+  container.className = "reaction-list";
+  container.dataset.messageId = messageId;
+  container.dataset.messageType = messageType;
+  container.dataset.reactionMessageKey = reactionMessageKey(messageType, messageId);
+  container.dataset.threadId = threadId;
+  renderReactionList(container, reactions);
+  return container;
+}
+
+function closeEmojiPicker({ restoreFocus = true } = {}) {
+  emojiPickerHost?.remove();
+  emojiPickerHost = null;
+  emojiPickerTarget = null;
+  const trigger = emojiPickerTrigger;
+  emojiPickerTrigger = null;
+  trigger?.setAttribute("aria-expanded", "false");
+  if (restoreFocus) trigger?.focus();
+}
+
+function positionEmojiPicker() {
+  if (!emojiPickerHost || !emojiPickerTrigger) return;
+  const margin = 8;
+  const triggerRect = emojiPickerTrigger.getBoundingClientRect();
+  const hostRect = emojiPickerHost.getBoundingClientRect();
+  const left = Math.min(
+    window.innerWidth - hostRect.width - margin,
+    Math.max(margin, triggerRect.right - hostRect.width),
+  );
+  const below = triggerRect.bottom + margin;
+  const top = below + hostRect.height <= window.innerHeight - margin
+    ? below
+    : Math.max(margin, triggerRect.top - hostRect.height - margin);
+  emojiPickerHost.style.left = `${left}px`;
+  emojiPickerHost.style.top = `${top}px`;
+}
+
+function applySlackInspiredEmojiPickerStyles(picker) {
+  const style = document.createElement("style");
+  style.textContent = `
+    .picker {
+      font-family: var(--bs-body-font-family, system-ui, sans-serif);
+    }
+
+    .pad-top {
+      display: none;
+    }
+
+    .nav {
+      order: 1;
+      min-height: 43px;
+      padding: 3px 8px 0;
+      background: #fff;
+    }
+
+    .nav-button {
+      min-width: 32px;
+      border-radius: 6px;
+    }
+
+    .nav-emoji {
+      filter: grayscale(0.15);
+    }
+
+    .indicator-wrapper {
+      order: 2;
+      margin: 0 8px;
+      border-bottom-color: #ddd;
+    }
+
+    .search-row {
+      order: 3;
+      padding: 10px 13px 8px;
+      background: #fff;
+    }
+
+    input.search {
+      min-height: 38px;
+      padding: 7px 11px;
+      box-shadow: inset 0 0 0 1px transparent;
+      transition: border-color 120ms ease, box-shadow 120ms ease;
+    }
+
+    input.search:focus {
+      border-color: #1264a3;
+      box-shadow: 0 0 0 1px #1264a3;
+      outline: 0;
+    }
+
+    .skintone-button-wrapper {
+      margin-inline-start: 6px;
+      border-radius: 6px;
+    }
+
+    .message {
+      order: 4;
+    }
+
+    .tabpanel {
+      order: 5;
+      padding: 0 7px 6px;
+      scrollbar-color: #868686 transparent;
+      scrollbar-width: thin;
+    }
+
+    .category {
+      position: sticky;
+      z-index: 1;
+      top: 0;
+      padding: 8px 7px 5px;
+      background: #fff;
+      font-size: 0.82rem;
+      font-weight: 700;
+    }
+
+    .emoji {
+      border-radius: 6px;
+    }
+
+    .favorites {
+      order: 6;
+      min-height: 48px;
+      padding: 3px 8px;
+      background: #fafafa;
+      scrollbar-width: thin;
+    }
+  `;
+  picker.shadowRoot?.append(style);
+}
+
+async function openEmojiPicker(trigger, target) {
+  if (emojiPickerTrigger === trigger) {
+    closeEmojiPicker();
+    return;
+  }
+  closeEmojiPicker({ restoreFocus: false });
+  emojiPickerTrigger = trigger;
+  emojiPickerTarget = target;
+  trigger.setAttribute("aria-expanded", "true");
+  try {
+    const { default: Picker } = await import("/vendor/emoji-picker/picker.js");
+    if (emojiPickerTrigger !== trigger) return;
+    const host = document.createElement("div");
+    host.className = "emoji-picker-popover";
+    host.setAttribute("role", "dialog");
+    host.setAttribute("aria-label", "選擇表情符號");
+    const picker = new Picker({
+      dataSource: "/vendor/emoji-data.json",
+      i18n: emojiPickerI18n,
+      locale: "zh-Hant",
+    });
+    applySlackInspiredEmojiPickerStyles(picker);
+    picker.addEventListener("emoji-click", async (event) => {
+      const selectedEmoji = event.detail.unicode ?? event.detail.emoji?.emoji;
+      const selectedTarget = emojiPickerTarget;
+      closeEmojiPicker();
+      if (!selectedEmoji || !selectedTarget) return;
+      try {
+        await setReaction({ ...selectedTarget, emoji: selectedEmoji, reacted: true });
+      } catch (error) {
+        setSystemMessage(discussionMessage, error.message, "error");
+      }
+    });
+    host.append(picker);
+    document.body.append(host);
+    emojiPickerHost = host;
+    positionEmojiPicker();
+    window.requestAnimationFrame(positionEmojiPicker);
+  } catch (error) {
+    closeEmojiPicker();
+    setSystemMessage(discussionMessage, `無法載入表情符號選擇器：${error.message}`, "error");
+  }
+}
+
+async function ensureFirebaseRealtimeContext() {
+  if (runtimeConfig?.authProvider !== "firebase") return null;
+  if (firebaseRealtimeContext) return firebaseRealtimeContext;
+  const [{ initializeApp }, authModule, firestoreModule] = await Promise.all([
+    import("https://www.gstatic.com/firebasejs/12.17.0/firebase-app.js"),
+    import("https://www.gstatic.com/firebasejs/12.17.0/firebase-auth.js"),
+    import("https://www.gstatic.com/firebasejs/12.17.0/firebase-firestore.js"),
+  ]);
+  const app = initializeApp(runtimeConfig.firebase);
+  const auth = authModule.getAuth(app);
+  await authModule.setPersistence(auth, authModule.inMemoryPersistence);
+  const tokenResponse = await fetch("/api/auth/firebase-client-token", { method: "POST" });
+  const { token } = await readJsonResponse(tokenResponse);
+  await authModule.signInWithCustomToken(auth, token);
+  firebaseRealtimeContext = {
+    auth,
+    db: firestoreModule.getFirestore(app),
+    modules: { ...authModule, ...firestoreModule },
+  };
+  return firebaseRealtimeContext;
+}
+
+function stopReactionRealtime() {
+  reactionRealtimeGeneration += 1;
+  for (const unsubscribe of reactionListenerUnsubscribers) unsubscribe();
+  reactionListenerUnsubscribers = [];
+  realtimeReactionDocuments.clear();
+}
+
+function applyRealtimeReactionChanges(snapshot) {
+  const affectedMessages = new Set();
+  for (const change of snapshot.docChanges()) {
+    const previous = realtimeReactionDocuments.get(change.doc.ref.path);
+    if (previous) affectedMessages.add(reactionMessageKey(previous.messageType, previous.messageId));
+    if (change.type === "removed") {
+      realtimeReactionDocuments.delete(change.doc.ref.path);
+    } else {
+      const reaction = change.doc.data();
+      realtimeReactionDocuments.set(change.doc.ref.path, reaction);
+      affectedMessages.add(reactionMessageKey(reaction.messageType, reaction.messageId));
+    }
+  }
+  for (const key of affectedMessages) {
+    const [messageType, messageId] = key.split(":");
+    const documents = [...realtimeReactionDocuments.values()]
+      .filter((reaction) => reaction.messageType === messageType && reaction.messageId === messageId);
+    updateReactionContainers(messageType, messageId, summarizeReactionDocuments(documents));
+  }
+}
+
+async function startReactionRealtime(threads) {
+  stopReactionRealtime();
+  const generation = reactionRealtimeGeneration;
+  if (!threads.length) return;
+  if (!runtimeConfig) await loadRuntimeConfig();
+  const context = await ensureFirebaseRealtimeContext();
+  if (!context || generation !== reactionRealtimeGeneration) return;
+  const threadsBySpace = new Map();
+  for (const thread of threads) {
+    const ids = threadsBySpace.get(thread.spaceId) ?? [];
+    ids.push(thread.id);
+    threadsBySpace.set(thread.spaceId, ids);
+  }
+  for (const [spaceId, threadIds] of threadsBySpace) {
+    for (let index = 0; index < threadIds.length; index += 30) {
+      const ids = threadIds.slice(index, index + 30);
+      const source = context.modules.collection(context.db, "spaces", spaceId, "messageReactions");
+      const reactionQuery = context.modules.query(source, context.modules.where("threadId", "in", ids));
+      reactionListenerUnsubscribers.push(context.modules.onSnapshot(
+        reactionQuery,
+        applyRealtimeReactionChanges,
+        (error) => setSystemMessage(discussionMessage, `Reaction 即時同步已中斷：${error.message}`, "error"),
+      ));
+    }
+  }
+}
+
 function createReplyComposer(thread, { parentReplyId = null, onCancel, onComplete }) {
   const form = document.createElement("form");
   form.className = `message-composer${parentReplyId ? " nested-reply-composer" : ""}`;
@@ -1123,8 +1535,10 @@ function renderReplyTree(thread, replies, attachments, container, onRefresh) {
     const attachmentList = document.createElement("div");
     attachmentList.className = "attachment-list reply-attachment-list";
     renderAttachmentList(attachmentList, replyAttachments);
+    const reactionList = createReactionList(thread.id, "reply", reply.id, reply.reactions);
     const actions = document.createElement("div");
     actions.className = "reply-message-actions";
+    actions.append(createAddReactionButton({ messageId: reply.id, messageType: "reply", threadId: thread.id }));
     const replyButton = document.createElement("button");
     replyButton.type = "button";
     replyButton.className = "reply-inline-action";
@@ -1249,7 +1663,7 @@ function renderReplyTree(thread, replies, attachments, container, onRefresh) {
     unreadMenu.addEventListener("toggle", () => unreadMenuToggle.setAttribute("aria-expanded", String(unreadMenu.open)));
     actions.append(unreadMenu);
     if (replyIsUnread) actions.append(createUnreadDot());
-    message.append(authorMeta, content, attachmentList, actions);
+    message.append(authorMeta, content, attachmentList, reactionList, actions);
     const composerHost = document.createElement("div");
     composerHost.className = "nested-composer-host";
     replyButton.addEventListener("click", () => {
@@ -1319,6 +1733,8 @@ function createThreadCard(thread) {
   const replyLabel = document.createElement("span");
   replyLabel.textContent = "回覆";
   replyAction.append(replyIcon, replyLabel);
+
+  const reactionAction = createAddReactionButton({ messageId: thread.id, messageType: "thread", threadId: thread.id });
 
   const actionSeparator = document.createElement("span");
   actionSeparator.className = "thread-action-separator";
@@ -1393,7 +1809,7 @@ function createThreadCard(thread) {
   }
   actionMenu.append(actionMenuToggle, actionMenuList);
   actionMenu.addEventListener("toggle", () => actionMenuToggle.setAttribute("aria-expanded", String(actionMenu.open)));
-  headerActions.append(replyAction, actionSeparator, actionMenu);
+  headerActions.append(reactionAction, replyAction, actionSeparator, actionMenu);
   if (threadIsUnread) headerActions.append(createUnreadDot());
   header.append(titleGroup, headerActions);
   const body = document.createElement("p");
@@ -1401,6 +1817,7 @@ function createThreadCard(thread) {
   body.textContent = thread.content;
   const attachmentList = document.createElement("div");
   attachmentList.className = "attachment-list thread-attachment-list";
+  const reactionList = createReactionList(thread.id, "thread", thread.id, thread.reactions);
   const replyList = document.createElement("ul");
   replyList.className = "reply-list";
   const topComposer = createReplyComposer(thread, {
@@ -1412,7 +1829,7 @@ function createThreadCard(thread) {
     topComposer.element.hidden = false;
     topComposer.focus();
   });
-  display.append(header, body, attachmentList, replyList, topComposer.element);
+  display.append(header, body, attachmentList, reactionList, replyList, topComposer.element);
   card.append(display);
   observeUnreadMessage(card, "thread", thread.id, thread.id);
 
@@ -1425,6 +1842,7 @@ function createThreadCard(thread) {
     const attachmentsPayload = await readJsonResponse(attachmentsResponse);
     threadAttachments = attachmentsPayload.attachments.filter((attachment) => !attachment.replyId);
     renderAttachmentList(attachmentList, threadAttachments);
+    renderReactionList(reactionList, detailsPayload.thread.reactions);
     renderReplyTree(thread, detailsPayload.replies, attachmentsPayload.attachments, replyList, refreshDetails);
   }
 
@@ -1541,6 +1959,9 @@ async function loadThreads() {
       ? payload.threads.filter((thread) => thread.statusId === selectedStatusId)
       : payload.threads;
     threadList.replaceChildren(...threads.map(createThreadCard));
+    void startReactionRealtime(threads).catch((error) => {
+      setSystemMessage(discussionMessage, `Reaction 即時同步無法啟動：${error.message}`, "error");
+    });
     if (!threads.length) {
       const empty = document.createElement("p");
       empty.className = "empty-state";
@@ -1548,6 +1969,7 @@ async function loadThreads() {
       threadList.append(empty);
     }
   } catch (error) {
+    stopReactionRealtime();
     setSystemMessage(discussionMessage, error.message, "error");
   }
 }

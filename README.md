@@ -53,7 +53,7 @@ docs/         技術報告、POC 工作清單與專案日誌
 - 登入後工作入口首頁與跨 Space 最新討論
 - 公司資訊、討論狀態統計與 Space 篩選
 - 全域新增討論與 Space 預選
-- 討論標題、內容、狀態、回覆、附件、書籤與搜尋
+- 討論標題、內容、狀態、回覆、Emoji Reaction、附件、書籤與搜尋
 - Admin 使用者角色、討論狀態、Space 與成員管理
 - Admin、Member、Guest 的 Explicit Membership 權限隔離
 

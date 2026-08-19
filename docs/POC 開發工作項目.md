@@ -35,6 +35,7 @@
 | POC-09 | 附件上傳與下載 | 上傳圖片及文件至 Firebase Storage、儲存 Metadata、限制檔案類型與容量，並依 Space Membership 控制存取。 | 已完成 |
 | POC-10 | 個人書籤 | 建立 UserBookmarks 資料集合，支援加入、取消及顯示目前使用者的收藏清單。 | 已完成 |
 | POC-11 | POC 搜尋 | 實作 Thread 標題與內容的簡易關鍵字搜尋，限制結果範圍並記錄未來導入專用搜尋引擎的條件。 | 已完成 |
+| POC-15 | Emoji Reaction | 討論與回覆支援完整 Unicode Emoji、多人聚合、加入／取消、姓名提示及正式 Firebase 即時同步。 | 已完成 |
 
 ### 第三階段：安全、驗收與交付
 
@@ -53,7 +54,6 @@
 ## POC 不包含項目
 
 - 私訊及即時聊天室
-- Emoji／Reaction
 - @Mention
 - Push Notification 及複雜 Email Notification
 - 行動 App

@@ -7,6 +7,7 @@
 | `users` | email、displayName、role、active、稽核欄位 | 使用者與全域角色。 |
 | `spaces` | name、parentId、sortOrder、accessMode、description、archived、稽核欄位 | 最多兩階的工作區；`parentId` 為 `null` 表示頂層，子層可採繼承或限制存取；同層依 `sortOrder`、名稱排序。 |
 | `spaces/{spaceId}/members` | userId、role、稽核欄位 | 直接成員；預設繼承的子工作區也接受父層直接成員。 |
+| `spaces/{spaceId}/messageReactions` | threadId、messageType、messageId、emoji、userId、userDisplayName、createdAt | 討論與回覆的 Emoji Reaction；瀏覽器只讀，寫入一律經 API。 |
 | `threadStatuses` | name、sortOrder、active、稽核欄位 | 全公司共用討論狀態。 |
 | `threads` | spaceId、title、content、authorId、statusId、pinned、archived、稽核欄位 | 討論串。 |
 | `threads/{threadId}/replies` | authorId、content、稽核欄位 | 討論回覆。 |
@@ -23,6 +24,7 @@
 | GET | `/api/config` | 前端所需的非機密執行設定。 |
 | POST | `/api/auth/login` | 本機 POC Email／Password 登入。 |
 | POST | `/api/auth/firebase-session` | 將 Firebase ID Token 交換成 HttpOnly Session Cookie。 |
+| POST | `/api/auth/firebase-client-token` | 正式環境以現有 Session 取得 Firestore 只讀即時監聽所需的短期 custom token。 |
 | POST | `/api/auth/logout` | 登出並清除 Session。 |
 | GET | `/api/auth/me` | 取得目前使用者。 |
 | GET／PATCH | `/api/users`、`/api/users/{id}` | Admin 使用者管理。 |
@@ -32,6 +34,7 @@
 | GET／POST／PATCH | `/api/thread-statuses` | 討論狀態管理。 |
 | GET／POST／PATCH | `/api/threads` | 討論串查詢、建立與修改。 |
 | POST／PATCH | `/api/threads/{id}/replies` | 回覆建立與修改。 |
+| PUT | `/api/threads/{id}/reactions` | 以 `messageType`、`messageId`、`emoji`、`reacted` 冪等新增或取消 Reaction。 |
 | PUT | `/api/threads/{id}/bookmark` | 加入或取消個人書籤。 |
 | GET | `/api/bookmarks` | 個人書籤清單。 |
 | GET | `/api/search?q=...` | 搜尋標題、內容與回覆。 |
@@ -42,6 +45,8 @@
 
 - `AUTH_PROVIDER=development`：使用本機記憶體資料及 `data/uploads`，啟動時可載入示範資料。
 - `AUTH_PROVIDER=firebase`：使用 Firebase Authentication、Cloud Firestore 與 Cloud Storage；後端以 Application Default Credentials 連線。
+
+正式 Firebase 環境會以 Firestore `onSnapshot` 只讀監聽目前畫面上的 Reaction；development 模式由操作者立即更新畫面，其他瀏覽器須重新載入資料。Reaction 不會產生未讀或通知，也不會更新討論排序時間。
 
 ## 工作區遷移
 

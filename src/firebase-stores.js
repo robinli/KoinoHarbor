@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { getFirestore } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
 
@@ -152,6 +154,11 @@ export function createFirestoreDiscussionStore(app) {
     return firestore.collection("users").doc(userId).collection("unreadMessages").doc(`${messageType}_${messageId}`);
   }
 
+  function reactionReference(spaceId, messageType, messageId, emoji, userId) {
+    const id = createHash("sha256").update(`${messageType}\0${messageId}\0${emoji}\0${userId}`).digest("hex");
+    return firestore.collection("spaces").doc(spaceId).collection("messageReactions").doc(id);
+  }
+
   return Object.freeze({
     async createStatus(input, actor) {
       const reference = statuses.doc();
@@ -290,6 +297,27 @@ export function createFirestoreDiscussionStore(app) {
         if (text.includes(needle)) results.push(thread);
       }
       return results;
+    },
+    async setReaction(input, reacted) {
+      const reference = reactionReference(input.spaceId, input.messageType, input.messageId, input.emoji, input.userId);
+      if (!reacted) {
+        const snapshot = await reference.get();
+        if (snapshot.exists) await reference.delete();
+        return plain(snapshot);
+      }
+      const snapshot = await reference.get();
+      if (!snapshot.exists) await reference.set({ ...input, createdAt: serverTimestamp() });
+      return plain(await reference.get());
+    },
+    async listReactions(spaceId, threadIds) {
+      if (!threadIds.length) return [];
+      const collection = firestore.collection("spaces").doc(spaceId).collection("messageReactions");
+      const chunks = [];
+      for (let index = 0; index < threadIds.length; index += 30) chunks.push(threadIds.slice(index, index + 30));
+      const snapshots = await Promise.all(chunks.map((ids) => collection.where("threadId", "in", ids).get()));
+      return snapshots
+        .flatMap((snapshot) => snapshot.docs.map(plain))
+        .sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.emoji.localeCompare(right.emoji));
     },
     async createUnreadMessages(message, userIds) {
       if (!userIds.length) return;

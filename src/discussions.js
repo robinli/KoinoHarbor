@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 function validationError(message) {
   const error = new Error(message);
@@ -23,7 +23,12 @@ export function createInMemoryDiscussionStore() {
   const threads = new Map();
   const replies = new Map();
   const bookmarks = new Map();
+  const messageReactions = new Map();
   const unreadMessages = new Map();
+
+  function reactionKey(messageType, messageId, emoji, userId) {
+    return createHash("sha256").update(`${messageType}\0${messageId}\0${emoji}\0${userId}`).digest("hex");
+  }
 
   function unreadKey(userId, messageType, messageId) {
     return `${userId}:${messageType}:${messageId}`;
@@ -291,6 +296,33 @@ export function createInMemoryDiscussionStore() {
           return haystack.includes(normalizedQuery) ? copy(thread) : null;
         })
         .filter(Boolean);
+    },
+
+    setReaction(input, reacted, now = new Date()) {
+      const key = reactionKey(input.messageType, input.messageId, input.emoji, input.userId);
+      if (!reacted) {
+        const existing = messageReactions.get(key) ?? null;
+        messageReactions.delete(key);
+        return existing ? copy(existing) : null;
+      }
+
+      const existing = messageReactions.get(key);
+      if (existing) return copy(existing);
+      const reaction = {
+        ...input,
+        createdAt: now.toISOString(),
+        id: key,
+      };
+      messageReactions.set(key, reaction);
+      return copy(reaction);
+    },
+
+    listReactions(spaceId, threadIds) {
+      const allowedThreads = new Set(threadIds);
+      return [...messageReactions.values()]
+        .filter((reaction) => reaction.spaceId === spaceId && allowedThreads.has(reaction.threadId))
+        .sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.emoji.localeCompare(right.emoji))
+        .map(copy);
     },
 
     createUnreadMessages(message, userIds, now = new Date()) {
