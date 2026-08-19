@@ -91,6 +91,11 @@ service cloud.firestore {
         allow read: if isAdmin() || (activeUser() && request.auth.uid == userId);
         allow write: if isAdmin();
       }
+
+      match /messageReactions/{reactionId} {
+        allow read: if canAccessSpace(spaceId);
+        allow create, update, delete: if false;
+      }
     }
 
     match /threadStatuses/{statusId} {

@@ -20,11 +20,14 @@ import {
   createSessionCookie,
   readSessionCookie,
 } from "./auth.js";
+import { requireEmoji } from "./emoji.js";
 
 const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
 const defaultPublicDirectory = path.resolve(moduleDirectory, "..", "public");
 const bootstrapDirectory = path.resolve(moduleDirectory, "..", "node_modules", "bootstrap", "dist", "css");
 const bootstrapIconsDirectory = path.resolve(moduleDirectory, "..", "node_modules", "bootstrap-icons", "font");
+const emojiPickerDirectory = path.resolve(moduleDirectory, "..", "node_modules", "emoji-picker-element");
+const emojiDataDirectory = path.resolve(moduleDirectory, "..", "node_modules", "emoji-picker-element-data", "zh-hant", "cldr");
 
 const contentTypes = new Map([
   [".css", "text/css; charset=utf-8"],
@@ -134,7 +137,7 @@ async function serveStaticFile(response, publicDirectory, pathname) {
       "Cache-Control": "no-cache",
       "Content-Length": fileStats.size,
       "Content-Type": contentTypes.get(path.extname(filePath).toLowerCase()) ?? "application/octet-stream",
-      "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' https://identitytoolkit.googleapis.com; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
+      "Content-Security-Policy": "default-src 'self'; script-src 'self' https://www.gstatic.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firestore.googleapis.com wss://firestore.googleapis.com; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
       "Referrer-Policy": "no-referrer",
       "X-Content-Type-Options": "nosniff",
       "X-Frame-Options": "DENY",
@@ -214,6 +217,57 @@ export function createApplicationServer(options = {}) {
       ...message,
       authorDisplayName: authors[index]?.displayName ?? "Unknown user",
     }));
+  }
+
+  async function reactionsForThreads(threads) {
+    const threadIdsBySpace = new Map();
+    for (const thread of threads) {
+      const ids = threadIdsBySpace.get(thread.spaceId) ?? [];
+      ids.push(thread.id);
+      threadIdsBySpace.set(thread.spaceId, ids);
+    }
+    return (await Promise.all([...threadIdsBySpace].map(([spaceId, threadIds]) => (
+      discussionStore.listReactions(spaceId, threadIds)
+    )))).flat();
+  }
+
+  function summarizeReactions(reactions, currentUserId) {
+    const groups = new Map();
+    for (const reaction of reactions) {
+      const group = groups.get(reaction.emoji) ?? {
+        createdAt: reaction.createdAt,
+        emoji: reaction.emoji,
+        reactors: [],
+      };
+      group.reactors.push({ displayName: reaction.userDisplayName ?? "Unknown user", userId: reaction.userId });
+      groups.set(reaction.emoji, group);
+    }
+    return [...groups.values()]
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.emoji.localeCompare(right.emoji))
+      .map(({ createdAt: _createdAt, emoji, reactors }) => ({
+        count: reactors.length,
+        emoji,
+        reactedByCurrentUser: reactors.some((reactor) => reactor.userId === currentUserId),
+        reactors,
+      }));
+  }
+
+  function withReactionSummaries(messages, messageType, currentUser, reactions) {
+    const reactionsByMessage = new Map();
+    for (const reaction of reactions.filter((item) => item.messageType === messageType)) {
+      const values = reactionsByMessage.get(reaction.messageId) ?? [];
+      values.push(reaction);
+      reactionsByMessage.set(reaction.messageId, values);
+    }
+    return messages.map((message) => ({
+      ...message,
+      reactions: summarizeReactions(reactionsByMessage.get(message.id) ?? [], currentUser.id),
+    }));
+  }
+
+  async function decorateThreads(threads, currentUser) {
+    const withAuthors = await withAuthorDisplayNames(threads);
+    return withReactionSummaries(withAuthors, "thread", currentUser, await reactionsForThreads(threads));
   }
 
   async function unreadRecipientIds(spaceId, authorId) {
@@ -376,6 +430,17 @@ export function createApplicationServer(options = {}) {
         }
 
         sendJson(response, 200, { user });
+        return;
+      }
+
+      if (request.method === "POST" && requestUrl.pathname === "/api/auth/firebase-client-token") {
+        const currentUser = requireUser(request, response, authService);
+        if (!currentUser) return;
+        if (authService.provider !== "firebase" || typeof authService.createClientToken !== "function") {
+          sendJson(response, 400, { error: "invalid_provider", message: "目前環境不支援 Firebase 即時同步。" });
+          return;
+        }
+        sendJson(response, 200, { token: await authService.createClientToken(currentUser) });
         return;
       }
 
@@ -658,11 +723,11 @@ export function createApplicationServer(options = {}) {
           return;
         }
         sendJson(response, 200, {
-          threads: await withAuthorDisplayNames(await markBookmarkedThreads(
+          threads: await decorateThreads(await markBookmarkedThreads(
             await discussionStore.listThreads(requestedSpaceId ? [requestedSpaceId] : allowedSpaceIds),
             currentUser,
             allowedSpaceIds,
-          )),
+          ), currentUser),
         });
         return;
       }
@@ -718,7 +783,7 @@ export function createApplicationServer(options = {}) {
           unreadMessage(thread, "thread", thread.id),
           await unreadRecipientIds(thread.spaceId, currentUser.id),
         );
-        sendJson(response, 201, { thread });
+        sendJson(response, 201, { thread: { ...thread, reactions: [] } });
         return;
       }
 
@@ -735,9 +800,15 @@ export function createApplicationServer(options = {}) {
           sendJson(response, 403, { error: "forbidden", message: "沒有存取此討論串的權限。" });
           return;
         }
+        const reactions = await reactionsForThreads([thread]);
         sendJson(response, 200, {
-          replies: await withAuthorDisplayNames(await discussionStore.listReplies(thread.id)),
-          thread: (await withAuthorDisplayNames([thread]))[0],
+          replies: withReactionSummaries(
+            await withAuthorDisplayNames(await discussionStore.listReplies(thread.id)),
+            "reply",
+            currentUser,
+            reactions,
+          ),
+          thread: withReactionSummaries((await withAuthorDisplayNames([thread])), "thread", currentUser, reactions)[0],
         });
         return;
       }
@@ -761,7 +832,8 @@ export function createApplicationServer(options = {}) {
           currentUser,
           currentUser.role === "admin",
         );
-        sendJson(response, 200, { thread });
+        const reactions = await reactionsForThreads([thread]);
+        sendJson(response, 200, { thread: withReactionSummaries([thread], "thread", currentUser, reactions)[0] });
         return;
       }
 
@@ -784,7 +856,7 @@ export function createApplicationServer(options = {}) {
           unreadMessage(thread, "reply", reply.id),
           await unreadRecipientIds(thread.spaceId, currentUser.id),
         );
-        sendJson(response, 201, { reply });
+        sendJson(response, 201, { reply: { ...reply, reactions: [] } });
         return;
       }
 
@@ -814,7 +886,62 @@ export function createApplicationServer(options = {}) {
           sendJson(response, 404, { error: "reply_not_found", message: "找不到指定的回覆。" });
           return;
         }
-        sendJson(response, 200, { reply });
+        const reactions = await reactionsForThreads([thread]);
+        sendJson(response, 200, { reply: withReactionSummaries([reply], "reply", currentUser, reactions)[0] });
+        return;
+      }
+
+      const reactionsRouteMatch = requestUrl.pathname.match(/^\/api\/threads\/([^/]+)\/reactions$/);
+      if (request.method === "PUT" && reactionsRouteMatch) {
+        const currentUser = requireUser(request, response, authService);
+        if (!currentUser) return;
+        const threadId = decodeURIComponent(reactionsRouteMatch[1]);
+        const thread = await discussionStore.getThread(threadId);
+        if (!thread || thread.deleted) {
+          sendJson(response, 404, { error: "thread_not_found", message: "找不到指定的討論串。" });
+          return;
+        }
+        if (!await spaceStore.canAccess(thread.spaceId, currentUser)) {
+          sendJson(response, 403, { error: "forbidden", message: "沒有存取此討論串的權限。" });
+          return;
+        }
+        const body = await readJsonBody(request);
+        if (!body || !["thread", "reply"].includes(body.messageType) || typeof body.messageId !== "string") {
+          sendJson(response, 400, { error: "invalid_request", message: "Reaction 訊息格式不正確。" });
+          return;
+        }
+        if (typeof body.reacted !== "boolean") {
+          sendJson(response, 400, { error: "invalid_request", message: "reacted 必須是布林值。" });
+          return;
+        }
+        if (body.messageType === "thread" && body.messageId !== thread.id) {
+          sendJson(response, 400, { error: "invalid_request", message: "討論訊息識別碼不正確。" });
+          return;
+        }
+        if (body.messageType === "reply") {
+          const reply = await discussionStore.getReply(thread.id, body.messageId);
+          if (!reply || reply.deleted) {
+            sendJson(response, 404, { error: "reply_not_found", message: "找不到指定的回覆。" });
+            return;
+          }
+        }
+        const emoji = requireEmoji(body.emoji);
+        await discussionStore.setReaction({
+          emoji,
+          messageId: body.messageId,
+          messageType: body.messageType,
+          spaceId: thread.spaceId,
+          threadId: thread.id,
+          userDisplayName: currentUser.displayName,
+          userId: currentUser.id,
+        }, body.reacted);
+        const reactions = await reactionsForThreads([thread]);
+        sendJson(response, 200, {
+          reactions: summarizeReactions(
+            reactions.filter((reaction) => reaction.messageType === body.messageType && reaction.messageId === body.messageId),
+            currentUser.id,
+          ),
+        });
         return;
       }
 
@@ -848,8 +975,8 @@ export function createApplicationServer(options = {}) {
         if (!currentUser) return;
         const allowedSpaceIds = await accessibleSpaceIds(currentUser);
         sendJson(response, 200, {
-          threads: await withAuthorDisplayNames((await discussionStore.listBookmarks(currentUser.id, allowedSpaceIds))
-            .map((thread) => ({ ...thread, bookmarked: true }))),
+          threads: await decorateThreads((await discussionStore.listBookmarks(currentUser.id, allowedSpaceIds))
+            .map((thread) => ({ ...thread, bookmarked: true })), currentUser),
         });
         return;
       }
@@ -861,7 +988,7 @@ export function createApplicationServer(options = {}) {
         const allowedSpaceIds = await accessibleSpaceIds(currentUser);
         sendJson(response, 200, {
           query,
-          threads: await withAuthorDisplayNames(await markBookmarkedThreads(await discussionStore.search(query, allowedSpaceIds), currentUser, allowedSpaceIds)),
+          threads: await decorateThreads(await markBookmarkedThreads(await discussionStore.search(query, allowedSpaceIds), currentUser, allowedSpaceIds), currentUser),
         });
         return;
       }
@@ -991,6 +1118,23 @@ export function createApplicationServer(options = {}) {
         request.method === "GET"
         && bootstrapIconFontMatch
         && await serveStaticFile(response, bootstrapIconsDirectory, `/fonts/${bootstrapIconFontMatch[1]}`)
+      ) {
+        return;
+      }
+
+      const emojiPickerModuleMatch = requestUrl.pathname.match(/^\/vendor\/emoji-picker\/(picker|database)\.js$/);
+      if (
+        request.method === "GET"
+        && emojiPickerModuleMatch
+        && await serveStaticFile(response, emojiPickerDirectory, `/${emojiPickerModuleMatch[1]}.js`)
+      ) {
+        return;
+      }
+
+      if (
+        ["GET", "HEAD"].includes(request.method)
+        && requestUrl.pathname === "/vendor/emoji-data.json"
+        && await serveStaticFile(response, emojiDataDirectory, "/data.json")
       ) {
         return;
       }

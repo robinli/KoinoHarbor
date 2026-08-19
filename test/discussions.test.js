@@ -63,3 +63,30 @@ test("thread, replies, moderation, bookmarks and search work together", () => {
   assert.equal(store.search("稅率格式", ["other-space"]).length, 0);
 });
 
+test("message reactions are idempotent, isolated and removable", () => {
+  const store = createInMemoryDiscussionStore();
+  const first = {
+    emoji: "✅",
+    messageId: "thread-1",
+    messageType: "thread",
+    spaceId: "space-1",
+    threadId: "thread-1",
+    userDisplayName: "Member",
+    userId: member.id,
+  };
+  const second = { ...first, userDisplayName: "Admin", userId: admin.id };
+  const reply = { ...first, messageId: "reply-1", messageType: "reply" };
+
+  store.setReaction(first, true, new Date("2026-08-19T01:00:00.000Z"));
+  store.setReaction(first, true, new Date("2026-08-19T02:00:00.000Z"));
+  store.setReaction(second, true, new Date("2026-08-19T03:00:00.000Z"));
+  store.setReaction(reply, true, new Date("2026-08-19T04:00:00.000Z"));
+  assert.equal(store.listReactions("space-1", ["thread-1"]).length, 3);
+  assert.equal(store.listReactions("space-2", ["thread-1"]).length, 0);
+
+  store.setReaction(first, false);
+  const remaining = store.listReactions("space-1", ["thread-1"]);
+  assert.equal(remaining.length, 2);
+  assert.deepEqual(remaining.map((reaction) => reaction.messageType), ["thread", "reply"]);
+});
+

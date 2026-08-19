@@ -37,6 +37,10 @@ function fakeFirestore(userData) {
 test("Firebase ID token exchange creates a verified session for an active user", async () => {
   const calls = [];
   const auth = {
+    async createCustomToken(userId) {
+      calls.push(["create-custom", userId]);
+      return "firebase-custom-token";
+    },
     async createSessionCookie(token) {
       calls.push(["create", token]);
       return "firebase-session-cookie";
@@ -62,7 +66,8 @@ test("Firebase ID token exchange creates a verified session for an active user",
   assert.equal(exchange.token, "firebase-session-cookie");
   assert.equal(exchange.user.role, "member");
   assert.equal((await service.verifySession("firebase-session-cookie")).email, "user@example.test");
-  assert.deepEqual(calls.map(([operation]) => operation), ["verify-id", "create", "verify-session"]);
+  assert.equal(await service.createClientToken(exchange.user), "firebase-custom-token");
+  assert.deepEqual(calls.map(([operation]) => operation), ["verify-id", "create", "verify-session", "create-custom"]);
 });
 
 test("Firebase ID token exchange rejects inactive users", async () => {

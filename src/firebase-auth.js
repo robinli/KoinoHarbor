@@ -46,6 +46,10 @@ export function createFirebaseAuth(config, dependencies = {}) {
   return Object.freeze({
     provider: "firebase",
 
+    async createClientToken(user) {
+      return firebaseAuth.createCustomToken(user.id);
+    },
+
     async exchangeIdToken(idToken) {
       const decodedToken = await firebaseAuth.verifyIdToken(idToken, true);
       const user = await userFromUid(decodedToken.uid);
