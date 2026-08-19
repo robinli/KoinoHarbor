@@ -1147,19 +1147,58 @@ async function setReaction({ emoji, messageId, messageType, reacted, threadId })
   return payload.reactions;
 }
 
+function createAddReactionIcon() {
+  const namespace = "http://www.w3.org/2000/svg";
+  const icon = document.createElementNS(namespace, "svg");
+  icon.setAttribute("class", "reaction-add-icon");
+  icon.setAttribute("viewBox", "0 0 24 24");
+  icon.setAttribute("fill", "none");
+  icon.setAttribute("stroke", "currentColor");
+  icon.setAttribute("stroke-width", "1.7");
+  icon.setAttribute("stroke-linecap", "round");
+  icon.setAttribute("stroke-linejoin", "round");
+  icon.setAttribute("aria-hidden", "true");
+  icon.setAttribute("focusable", "false");
+
+  for (const pathData of [
+    "M15.2 3.9A8.5 8.5 0 1 0 19 10.4",
+    "M7.6 14.4c1.6 1.8 4.8 1.8 6.4 0",
+    "M18.5 1.5v6",
+    "M15.5 4.5h6",
+  ]) {
+    const path = document.createElementNS(namespace, "path");
+    path.setAttribute("d", pathData);
+    icon.append(path);
+  }
+
+  for (const centerX of [8, 13]) {
+    const eye = document.createElementNS(namespace, "circle");
+    eye.setAttribute("cx", String(centerX));
+    eye.setAttribute("cy", "10.3");
+    eye.setAttribute("r", "0.65");
+    eye.setAttribute("fill", "currentColor");
+    eye.setAttribute("stroke", "none");
+    icon.append(eye);
+  }
+
+  return icon;
+}
+
+function configureMessageIconAction(button, { accessibleLabel, tooltip }) {
+  button.classList.add("message-icon-action");
+  button.setAttribute("aria-label", accessibleLabel);
+  button.dataset.tooltip = tooltip;
+  return button;
+}
+
 function createAddReactionButton(target, compact = false) {
   const button = document.createElement("button");
   button.type = "button";
-  button.className = compact ? "reaction-add-button is-compact" : "reaction-action-button";
-  button.setAttribute("aria-label", "新增表情符號");
-  button.title = "新增表情符號";
-  const icon = document.createElement("i");
-  icon.className = "bi bi-emoji-smile";
-  icon.setAttribute("aria-hidden", "true");
-  const plus = document.createElement("span");
-  plus.className = "reaction-add-plus";
-  plus.textContent = "+";
-  button.append(icon, plus);
+  button.className = compact
+    ? "reaction-add-button is-compact btn btn-quiet"
+    : "reaction-action-button btn btn-quiet";
+  configureMessageIconAction(button, { accessibleLabel: "新增表情符號", tooltip: "新增表情符號" });
+  button.append(createAddReactionIcon());
   button.addEventListener("click", () => openEmojiPicker(button, target));
   return button;
 }
@@ -1541,8 +1580,12 @@ function renderReplyTree(thread, replies, attachments, container, onRefresh) {
     actions.append(createAddReactionButton({ messageId: reply.id, messageType: "reply", threadId: thread.id }));
     const replyButton = document.createElement("button");
     replyButton.type = "button";
-    replyButton.className = "reply-inline-action";
-    replyButton.textContent = "回覆";
+    replyButton.className = "reply-inline-action btn btn-quiet";
+    configureMessageIconAction(replyButton, { accessibleLabel: "回覆這則訊息", tooltip: "回覆" });
+    const replyIcon = document.createElement("i");
+    replyIcon.className = "bi bi-chat-left-text";
+    replyIcon.setAttribute("aria-hidden", "true");
+    replyButton.append(replyIcon);
     actions.append(replyButton);
     const canEditReply = signedInUser.id === reply.authorId;
     if (canEditReply) {
@@ -1726,13 +1769,11 @@ function createThreadCard(thread) {
   const replyAction = document.createElement("button");
   replyAction.type = "button";
   replyAction.className = "thread-header-button btn btn-quiet";
-  replyAction.setAttribute("aria-label", `回覆「${thread.title}」`);
+  configureMessageIconAction(replyAction, { accessibleLabel: `回覆「${thread.title}」`, tooltip: "回覆" });
   const replyIcon = document.createElement("i");
   replyIcon.className = "bi bi-chat-left-text";
   replyIcon.setAttribute("aria-hidden", "true");
-  const replyLabel = document.createElement("span");
-  replyLabel.textContent = "回覆";
-  replyAction.append(replyIcon, replyLabel);
+  replyAction.append(replyIcon);
 
   const reactionAction = createAddReactionButton({ messageId: thread.id, messageType: "thread", threadId: thread.id });
 
