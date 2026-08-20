@@ -7,23 +7,27 @@ service firebase.storage {
         && firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.active == true;
     }
 
-    function isAdmin() {
-      let role = firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role;
-      return activeUser() && role == 'admin';
-    }
-
-    function isSpaceMember(spaceId) {
+    function isDirectSpaceMember(spaceId, space) {
       return activeUser()
-        && firestore.exists(/databases/(default)/documents/spaces/$(spaceId)/members/$(request.auth.uid));
+        && space.data.deletedAt == null
+        && space.data.accessMode == 'restricted'
+        && firestore.exists(/databases/(default)/documents/spaces/$(spaceId)/members/$(request.auth.uid))
+        && space.data.allowedRoles.hasAny([
+          firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role
+        ]);
     }
 
     function canAccessSpace(spaceId) {
       let space = firestore.get(/databases/(default)/documents/spaces/$(spaceId));
-      return isAdmin()
-        || isSpaceMember(spaceId)
+      let parent = space.data.parentId == null
+        ? space
+        : firestore.get(/databases/(default)/documents/spaces/$(space.data.parentId));
+      return space.data.deletedAt == null
+        && (isDirectSpaceMember(spaceId, space)
         || (space.data.parentId != null
           && space.data.accessMode == 'inherited'
-          && isSpaceMember(space.data.parentId));
+          && parent.data.deletedAt == null
+          && isDirectSpaceMember(space.data.parentId, parent)));
     }
 
     function allowedContentType() {

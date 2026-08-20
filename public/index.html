@@ -66,6 +66,7 @@
               <div id="portal-space-list"></div>
             </div>
             <nav class="portal-nav portal-nav-secondary">
+              <button type="button" id="portal-joinable" data-portal-target="joinable"><i class="sidebar-icon bi bi-plus-circle-fill" aria-hidden="true"></i><span>加入工作區</span></button>
               <button type="button" id="portal-bookmarks"><i class="sidebar-icon bi bi-bookmark-fill" aria-hidden="true"></i><span>我的書籤</span></button>
             </nav>
             <button class="portal-logout" id="portal-logout-button" type="button"><i class="sidebar-icon bi bi-box-arrow-right" aria-hidden="true"></i><span>登出</span></button>
@@ -105,10 +106,21 @@
             <section class="spaces-panel portal-view" id="spaces-panel" data-portal-view="spaces" aria-labelledby="spaces-title" hidden>
               <div class="section-heading compact-heading">
                 <h2 id="spaces-title">工作區管理</h2>
-                <button type="button" id="create-root-space-button">新增頂層工作區</button>
+                <div class="space-heading-actions">
+                  <label>顯示<select id="space-state-filter"><option value="active">使用中</option><option value="deleted">已刪除</option></select></label>
+                  <button type="button" id="create-root-space-button">新增頂層工作區</button>
+                </div>
               </div>
               <p class="form-message" id="space-message" role="alert"></p>
               <div class="space-grid" id="space-list"></div>
+            </section>
+
+            <section class="spaces-panel portal-view" id="joinable-panel" data-portal-view="joinable" aria-labelledby="joinable-title" hidden>
+              <div class="section-heading compact-heading">
+                <h2 id="joinable-title">加入工作區</h2>
+              </div>
+              <p class="form-message" id="joinable-message" role="alert"></p>
+              <div class="membership-space-list" id="membership-space-list"></div>
             </section>
 
             <section class="discussion-panel portal-view" id="discussion-panel" data-portal-view="discussions" aria-labelledby="discussion-title" hidden>
@@ -143,15 +155,15 @@
                 <h2>後台管理</h2>
               </div>
               <section class="user-admin" id="user-admin" aria-labelledby="user-admin-title" hidden>
-                <div class="section-heading compact-heading"><h3 id="user-admin-title">使用者與角色</h3></div>
+                <div class="section-heading compact-heading"><h3 id="user-admin-title">使用者與群組</h3></div>
                 <form class="user-create-form" id="user-create-form">
                   <label>顯示名稱<input name="displayName" required maxlength="80" autocomplete="off"></label>
                   <label>Email<input name="email" type="email" required autocomplete="off"></label>
                   <label>初始密碼<input name="password" type="password" required minlength="8" autocomplete="new-password"></label>
-                  <label>角色<select name="role"><option value="member">member</option><option value="guest">guest</option><option value="admin">admin</option></select></label>
+                  <label>群組<select name="role"><option value="member">member</option><option value="guest">guest</option><option value="admin">admin</option></select></label>
                   <button type="submit">新增使用者</button>
                 </form>
-                <div class="table-wrap"><table><thead><tr><th>使用者</th><th>新密碼</th><th>角色</th><th>狀態</th><th><span class="visually-hidden">操作</span></th></tr></thead><tbody id="user-table-body"></tbody></table></div>
+                <div class="table-wrap"><table><thead><tr><th>使用者</th><th>新密碼</th><th>群組</th><th>狀態</th><th><span class="visually-hidden">操作</span></th></tr></thead><tbody id="user-table-body"></tbody></table></div>
                 <p class="form-message" id="user-admin-message" role="alert"></p>
               </section>
               <section class="status-admin" aria-labelledby="status-admin-title">
@@ -237,10 +249,18 @@
           <label>名稱<input name="name" required maxlength="80"></label>
           <label>排序<input name="sortOrder" type="number" min="0" step="1" value="0" required></label>
           <label id="space-access-mode-field">存取模式<select name="accessMode"><option value="inherited">繼承父層成員</option><option value="restricted">限制為此工作區成員</option></select></label>
+          <div class="space-role-fieldset" id="space-role-fieldset" role="group" aria-labelledby="space-role-label">
+            <span id="space-role-label">允許加入的群組</span>
+            <label><input name="allowedRoles" type="checkbox" value="admin"> admin</label>
+            <label><input name="allowedRoles" type="checkbox" value="member"> member</label>
+            <label><input name="allowedRoles" type="checkbox" value="guest"> guest</label>
+          </div>
+          <p class="space-inherited-note" id="space-inherited-note" hidden>群組與成員資格沿用父工作區。</p>
           <label>說明<input name="description" maxlength="200"></label>
           <label id="space-archived-field">狀態<select name="archived"><option value="false">啟用</option><option value="true">封存</option></select></label>
           <p class="form-message" id="space-edit-message" role="alert"></p>
-          <div class="dialog-actions">
+          <div class="dialog-actions space-dialog-actions">
+            <button class="delete-space-button" id="space-dialog-delete" type="button" hidden>刪除</button>
             <button class="secondary-button" type="button" data-close-dialog>取消</button>
             <button type="submit" id="space-dialog-submit">儲存變更</button>
           </div>

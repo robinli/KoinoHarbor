@@ -179,26 +179,61 @@ export function createApplicationServer(options = {}) {
     const admin = developmentUsers.find((user) => user.role === "admin");
     const member = developmentUsers.find((user) => user.role === "member");
     if (admin && member) {
-      const company = spaceStore.createSpace({
-        description: "公司內部公告與共通資訊",
-        name: "公司公告",
+      const project = spaceStore.createSpace({
+        accessMode: "restricted",
+        allowedRoles: ["admin", "member"],
+        description: "專案相關討論與追蹤",
+        name: "專案",
       }, admin);
-      spaceStore.addMember(company.id, member, "member", admin);
-      const implementation = spaceStore.createSpace({
-        description: "ERP 導入相關討論與追蹤",
-        name: "ERP 導入專案",
-        parentId: company.id,
+      const projectP1 = spaceStore.createSpace({
+        accessMode: "inherited",
+        allowedRoles: [],
+        description: "專案 P1 的討論與追蹤",
+        name: "專案P1",
+        parentId: project.id,
       }, admin);
+      const projectP2 = spaceStore.createSpace({
+        accessMode: "inherited",
+        allowedRoles: [],
+        description: "專案 P2 的討論與追蹤",
+        name: "專案P2",
+        parentId: project.id,
+      }, admin);
+      const department = spaceStore.createSpace({
+        accessMode: "restricted",
+        allowedRoles: ["admin", "member"],
+        description: "部門相關討論與追蹤",
+        name: "部門",
+      }, admin);
+      const departmentD1 = spaceStore.createSpace({
+        accessMode: "inherited",
+        allowedRoles: [],
+        description: "部門 D1 的討論與追蹤",
+        name: "部門D1",
+        parentId: department.id,
+      }, admin);
+      const departmentD2 = spaceStore.createSpace({
+        accessMode: "inherited",
+        allowedRoles: [],
+        description: "部門 D2 的討論與追蹤",
+        name: "部門D2",
+        parentId: department.id,
+      }, admin);
+      for (const space of [project, department]) {
+        spaceStore.addMember(space.id, admin, admin);
+        spaceStore.addMember(space.id, member, admin);
+      }
       const openStatus = discussionStore.createStatus({ name: "未處理", sortOrder: 1 }, admin);
       discussionStore.createStatus({ name: "處理中", sortOrder: 2 }, admin);
       discussionStore.createStatus({ name: "已完成", sortOrder: 3 }, admin);
-      discussionStore.createThread({
-        content: "這是本機 POC 的示範討論，可用來驗證回覆、狀態、附件、搜尋與書籤功能。",
-        spaceId: implementation.id,
-        statusId: openStatus.id,
-        title: "歡迎使用 Koino Harbor",
-      }, member);
-      void company;
+      for (const space of [project, projectP1, projectP2, department, departmentD1, departmentD2]) {
+        discussionStore.createThread({
+          content: `這是「${space.name}」的本機測試討論，可用來驗證討論功能。`,
+          spaceId: space.id,
+          statusId: openStatus.id,
+          title: `${space.name} 工作區討論`,
+        }, member);
+      }
     }
   }
 
@@ -522,7 +557,30 @@ export function createApplicationServer(options = {}) {
           return;
         }
 
+        if (changes.role !== undefined) {
+          await spaceStore.removeIneligibleMembershipsForUser(updatedUser);
+        }
+
         sendJson(response, 200, { user: updatedUser });
+        return;
+      }
+
+      if (request.method === "GET" && requestUrl.pathname === "/api/admin/spaces") {
+        const currentUser = requireUser(request, response, authService, "admin");
+        if (!currentUser) return;
+        const state = requestUrl.searchParams.get("state") ?? "active";
+        if (!["active", "deleted", "all"].includes(state)) {
+          sendJson(response, 400, { error: "invalid_space_state", message: "state 只能是 active、deleted 或 all。" });
+          return;
+        }
+        sendJson(response, 200, { spaces: await spaceStore.listAllSpaces({ state }) });
+        return;
+      }
+
+      if (request.method === "GET" && requestUrl.pathname === "/api/spaces/joinable") {
+        const currentUser = requireUser(request, response, authService);
+        if (!currentUser) return;
+        sendJson(response, 200, { spaces: await spaceStore.listJoinableSpaces(currentUser) });
         return;
       }
 
@@ -550,6 +608,19 @@ export function createApplicationServer(options = {}) {
       }
 
       const spaceRouteMatch = requestUrl.pathname.match(/^\/api\/spaces\/([^/]+)$/);
+      const spaceRestoreRouteMatch = requestUrl.pathname.match(/^\/api\/spaces\/([^/]+)\/restore$/);
+
+      if (request.method === "POST" && spaceRestoreRouteMatch) {
+        const currentUser = requireUser(request, response, authService, "admin");
+        if (!currentUser) return;
+        const space = await spaceStore.restoreSpace(decodeURIComponent(spaceRestoreRouteMatch[1]), currentUser);
+        if (!space) {
+          sendJson(response, 404, { error: "space_not_found", message: "找不到指定的工作區。" });
+          return;
+        }
+        sendJson(response, 200, { space, status: "restored" });
+        return;
+      }
 
       if (request.method === "PATCH" && spaceRouteMatch) {
         const currentUser = requireUser(request, response, authService, "admin");
@@ -558,9 +629,11 @@ export function createApplicationServer(options = {}) {
           return;
         }
 
+        const changes = await readJsonBody(request);
+        const spaceId = decodeURIComponent(spaceRouteMatch[1]);
         const space = await spaceStore.updateSpace(
-          decodeURIComponent(spaceRouteMatch[1]),
-          await readJsonBody(request),
+          spaceId,
+          changes,
           currentUser,
         );
 
@@ -572,7 +645,65 @@ export function createApplicationServer(options = {}) {
           return;
         }
 
-        sendJson(response, 200, { space });
+        const removedMemberIds = changes.allowedRoles === undefined
+          ? []
+          : await spaceStore.removeIneligibleMembers(spaceId, await authService.listUsers());
+
+        sendJson(response, 200, { removedMemberIds, space });
+        return;
+      }
+
+      if (request.method === "DELETE" && spaceRouteMatch) {
+        const currentUser = requireUser(request, response, authService, "admin");
+        if (!currentUser) return;
+        const space = await spaceStore.deleteSpace(decodeURIComponent(spaceRouteMatch[1]), currentUser);
+        if (!space) {
+          sendJson(response, 404, { error: "space_not_found", message: "找不到指定的工作區。" });
+          return;
+        }
+        sendJson(response, 200, { space, status: "deleted" });
+        return;
+      }
+
+      const selfMembershipRouteMatch = requestUrl.pathname.match(/^\/api\/spaces\/([^/]+)\/membership$/);
+
+      if (request.method === "PUT" && selfMembershipRouteMatch) {
+        const currentUser = requireUser(request, response, authService);
+        if (!currentUser) return;
+        const spaceId = decodeURIComponent(selfMembershipRouteMatch[1]);
+        const membership = await spaceStore.addMember(spaceId, currentUser, currentUser);
+        if (!membership) {
+          sendJson(response, 404, { error: "space_not_found", message: "找不到指定的工作區。" });
+          return;
+        }
+        sendJson(response, 200, { membership });
+        return;
+      }
+
+      if (request.method === "DELETE" && selfMembershipRouteMatch) {
+        const currentUser = requireUser(request, response, authService);
+        if (!currentUser) return;
+        const spaceId = decodeURIComponent(selfMembershipRouteMatch[1]);
+        const space = await spaceStore.getSpace(spaceId);
+        if (!space) {
+          sendJson(response, 404, { error: "space_not_found", message: "找不到指定的工作區。" });
+          return;
+        }
+        if (space.deletedAt) {
+          sendJson(response, 409, { error: "space_deleted", message: "已刪除的工作區不可退出。" });
+          return;
+        }
+        if (space.accessMode === "inherited") {
+          sendJson(response, 409, { error: "inherited_membership", message: "此工作區的成員資格由父層繼承，無法直接退出。" });
+          return;
+        }
+        const affectedSpaces = (await spaceStore.listSpaces(currentUser))
+          .filter((candidate) => candidate.parentId === spaceId
+            && candidate.accessMode === "inherited"
+            && candidate.membershipType === "inherited")
+          .map((candidate) => ({ id: candidate.id, name: candidate.name }));
+        await spaceStore.removeMember(spaceId, currentUser.id);
+        sendJson(response, 200, { affectedSpaces, status: "removed" });
         return;
       }
 
@@ -625,7 +756,6 @@ export function createApplicationServer(options = {}) {
         const membership = await spaceStore.addMember(
           decodeURIComponent(spaceMembersRouteMatch[1]),
           member,
-          body.role,
           currentUser,
         );
 

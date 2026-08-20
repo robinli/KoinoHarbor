@@ -597,7 +597,175 @@ textarea.form-control {
   font-weight: 700;
 }
 
-.space-edit-form input,
+.space-role-fieldset {
+  display: grid;
+  grid-template-columns: max-content repeat(3, max-content);
+  align-items: center;
+  gap: 0.75rem 1.25rem;
+  margin: 0;
+  padding: 0.75rem;
+  border: 1px solid var(--border-color, #d7dde5);
+  border-radius: 0.5rem;
+}
+
+.space-role-fieldset > span {
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+
+.space-role-fieldset label {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0;
+  color: var(--kh-ink);
+  font-size: 0.875rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.space-role-fieldset input[type="checkbox"] {
+  flex: 0 0 auto;
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
+  padding: 0;
+}
+
+.space-role-fieldset .form-check-input {
+  float: none;
+  margin: 0;
+}
+
+.space-inherited-note {
+  margin: 0;
+  padding: 0.75rem;
+  color: var(--kh-muted);
+  border: 1px solid var(--border-color, #d7dde5);
+  border-radius: 0.5rem;
+  background: var(--kh-purple-soft);
+}
+
+.space-heading-actions {
+  display: flex;
+  align-items: end;
+  gap: 0.75rem;
+}
+
+.space-heading-actions label {
+  display: grid;
+  gap: 0.25rem;
+  color: var(--kh-muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.delete-space-button {
+  color: #a51d2d;
+  border-color: #d8a1a8;
+  background: #fff5f6;
+}
+
+.space-dialog-actions .delete-space-button,
+.message-form-actions .delete-thread-button {
+  min-height: 40px;
+  margin-right: auto;
+  padding: 10px 13px;
+  color: #a51d2d;
+  border: 1px solid #d8a1a8;
+  border-radius: 8px;
+  background: #fff5f6;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 750;
+}
+
+.space-dialog-actions .delete-space-button:hover,
+.message-form-actions .delete-thread-button:hover {
+  color: #851725;
+  border-color: #c87f89;
+  background: #ffe9ec;
+  transform: none;
+}
+
+.restore-space-button {
+  color: #087357;
+  border-color: #8fc9b7;
+  background: #f0fbf7;
+}
+
+.space-item.is-deleted {
+  opacity: 0.78;
+}
+
+.membership-space-list {
+  overflow: hidden;
+  border: 1px solid var(--border-color, #d7dde5);
+  border-radius: 0.75rem;
+  background: #fff;
+}
+
+.membership-space-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  min-height: 78px;
+  padding: 1rem 1.1rem;
+  border-bottom: 1px solid var(--border-color, #e2e6eb);
+}
+
+.membership-space-row:last-child {
+  border-bottom: 0;
+}
+
+.membership-space-details {
+  min-width: 0;
+}
+
+.membership-space-row h3 {
+  margin: 0 0 0.25rem;
+  font-size: 1rem;
+}
+
+.membership-space-metadata {
+  margin: 0;
+  color: var(--text-muted, #697386);
+  font-size: 0.875rem;
+}
+
+.membership-space-metadata strong {
+  color: #07845d;
+  font-weight: 600;
+}
+
+.membership-space-row > button {
+  flex: 0 0 auto;
+  min-width: 80px;
+}
+
+.membership-space-row > button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+@media (max-width: 640px) {
+  .space-role-fieldset {
+    grid-template-columns: repeat(2, max-content);
+  }
+
+  .space-role-fieldset > span {
+    grid-column: 1 / -1;
+  }
+
+  .membership-space-row {
+    align-items: flex-start;
+  }
+}
+
+.space-edit-form input:not([type="checkbox"]),
 .space-edit-form select {
   width: 100%;
 }
@@ -1724,18 +1892,26 @@ textarea.form-control {
   transform: none;
 }
 
-.delete-thread-button {
-  margin-right: auto;
-  color: var(--kh-danger);
-  border-color: #f2c8c4;
-  background: #fff3f2;
+.edit-dialog-form .system-message-close {
+  flex: 0 0 38px;
+  width: 38px;
+  min-height: 38px;
+  margin-left: auto;
+  padding: 0;
+  color: var(--kh-muted);
+  border: 0;
+  border-radius: 50%;
+  background: var(--kh-surface-soft);
 }
 
-.delete-thread-button:hover {
-  color: #fff;
-  border-color: var(--kh-danger);
-  background: var(--kh-danger);
+.edit-dialog-form .system-message-close:hover {
+  color: var(--kh-ink);
+  background: var(--kh-line);
   transform: none;
+}
+
+.delete-thread-button {
+  margin-right: auto;
 }
 
 .empty-state {

@@ -16,6 +16,7 @@ test("portal shell exposes the ordered account, Space, bookmark and admin entry 
     'data-portal-view="home"',
     'data-portal-view="discussions"',
     'data-portal-view="spaces"',
+    'data-portal-view="joinable"',
     'data-portal-view="admin"',
     'id="dashboard-space-filter"',
     'id="thread-form"',
@@ -39,15 +40,23 @@ test("portal shell exposes the ordered account, Space, bookmark and admin entry 
   assert.match(html, /id="portal-all-spaces"[^>]*>[\s\S]*?bi-grid-3x3-gap-fill[\s\S]*?全部工作區[\s\S]*?<\/button>/);
   assert.match(html, /id="spaces-title"[^>]*>工作區管理<\/h2>/);
   assert.match(html, /id="create-root-space-button"[\s\S]*?新增頂層工作區/);
+  assert.match(html, /id="space-state-filter"[\s\S]*?value="active"[\s\S]*?value="deleted"/);
+  assert.match(html, /id="portal-joinable"[^>]*data-portal-target="joinable"/);
+  assert.match(html, /id="membership-space-list"/);
+  assert.doesNotMatch(html, /依您的群組顯示可加入的工作區/);
+  assert.match(html, /name="allowedRoles"[^>]*value="admin"[\s\S]*name="allowedRoles"[^>]*value="member"[\s\S]*name="allowedRoles"[^>]*value="guest"/);
+  assert.match(html, /id="space-role-fieldset"[\s\S]*?允許加入的群組[\s\S]*?admin[\s\S]*?member[\s\S]*?guest/);
+  assert.match(html, /id="space-inherited-note"[^>]*hidden[^>]*>群組與成員資格沿用父工作區/);
   assert.doesNotMatch(html, /id="space-form"/);
   assert.match(html, /id="space-edit-dialog"[\s\S]*?name="parentId"[\s\S]*?name="sortOrder"[\s\S]*?name="accessMode"[\s\S]*?name="archived"[\s\S]*?儲存變更/);
+  assert.match(html, /class="dialog-actions space-dialog-actions"[\s\S]*?id="space-dialog-delete"[^>]*hidden[^>]*>刪除<\/button>/);
   assert.doesNotMatch(html, /id="space-edit-dialog"[\s\S]*?<p class="eyebrow">Workspace<\/p>/);
   assert.doesNotMatch(html, /Workspace overview|顯示所有可存取工作區的資訊。/);
   assert.doesNotMatch(html, /id="portal-all-spaces"[^>]*data-portal-target="spaces"/);
   assert.match(html, /class="sidebar-brand"[\s\S]*?id="portal-profile-button"[\s\S]*?id="portal-all-spaces"[\s\S]*?id="portal-space-list"[\s\S]*?id="portal-bookmarks"[\s\S]*?id="portal-logout-button"/);
   assert.match(html, />工作區管理<\/button>/);
   assert.doesNotMatch(html, />[^<]*\bSpace\b[^<]*</);
-  assert.match(html, /後台管理[\s\S]*使用者與角色[\s\S]*新增使用者/);
+  assert.match(html, /後台管理[\s\S]*使用者與群組[\s\S]*新增使用者/);
   assert.match(html, /id="user-create-form"/);
   assert.match(html, /id="forgot-password-form"/);
   assert.match(html, /忘記密碼？/);
@@ -58,6 +67,23 @@ test("portal client aggregates accessible threads and disables creation without 
   const script = await readFile(scriptUrl, "utf8");
 
   assert.match(script, /fetch\("\/api\/threads"/);
+  assert.match(script, /fetch\(`\/api\/admin\/spaces\?state=/);
+  assert.match(script, /fetch\("\/api\/spaces\/joinable"/);
+  assert.match(script, /const isInheritedMember = membershipType === "inherited"/);
+  assert.match(script, /已加入（繼承）/);
+  assert.match(script, /button\.disabled = isInheritedMember/);
+  assert.match(script, /for \(const space of availableSpaces\) spacesById\.set\(space\.id, space\)/);
+  assert.doesNotMatch(script, /groups\.textContent = `允許群組/);
+  assert.match(script, /\/membership`, \{ method: "PUT" \}/);
+  assert.match(script, /\/membership`, \{ method: "DELETE" \}/);
+  assert.match(script, /fetch\(`\/api\/spaces\/\$\{encodeURIComponent\(space\.id\)\}`, \{ method: "DELETE" \}\)/);
+  assert.match(script, /spaceDialogDelete\.hidden = creating/);
+  assert.match(script, /spaceDialogDelete\.addEventListener\("click", async \(\) =>/);
+  assert.doesNotMatch(script, /actions\.append\(deleteButton\);[\s\S]*?header\.append\(actions\);/);
+  assert.match(script, /fetch\(`\/api\/spaces\/\$\{encodeURIComponent\(space\.id\)\}\/restore`, \{ method: "POST" \}\)/);
+  assert.match(script, /space\.accessMode === "inherited"/);
+  assert.match(script, /signedInUser\.role === "admin" && !space\.deletedAt && space\.accessMode === "restricted"/);
+  assert.match(script, /const allowedRoles = accessMode === "inherited" \? \[\] : formData\.getAll\("allowedRoles"\)/);
   assert.match(script, /dashboardSpaceFilter\.value/);
   assert.match(script, /button\.disabled = !activeSpaces\.length/);
   assert.match(script, /portalAdminNav\.hidden = user\.role !== "admin"/);
@@ -82,7 +108,7 @@ test("portal client aggregates accessible threads and disables creation without 
   assert.match(script, /left\.sortOrder \?\? 0\) - \(right\.sortOrder \?\? 0\) \|\| left\.name\.localeCompare\(right\.name\)/);
   assert.match(script, /openSpaceDialog\(\{ parent: space \}\)/);
   assert.match(script, /createRootSpaceButton\.addEventListener\("click", \(\) => openSpaceDialog\(\)\)/);
-  assert.match(script, /accessMode: formData\.get\("accessMode"\)/);
+  assert.match(script, /const accessMode = creating \? \(parentId \? formData\.get\("accessMode"\) : "restricted"\)/);
   assert.match(script, /sortOrder: Number\.parseInt\(formData\.get\("sortOrder"\), 10\)/);
   assert.match(script, /method: creating \? "POST" : "PATCH"/);
   assert.doesNotMatch(script, /announcementList|space\.type/);
@@ -154,6 +180,8 @@ test("portal client aggregates accessible threads and disables creation without 
   assert.doesNotMatch(script, /replyLabel\.textContent = "回覆"/);
   assert.match(script, /configureMessageIconAction\(replyAction,[\s\S]*?tooltip: "回覆"/);
   assert.match(script, /configureMessageIconAction\(replyButton,[\s\S]*?tooltip: "回覆"/);
+  assert.match(script, /deleteButton\.className = "delete-thread-button";[\s\S]*?deleteButton\.textContent = "刪除";/);
+  assert.doesNotMatch(script, /deleteButton\.textContent = "刪除(?:討論|回覆)"/);
   assert.match(script, /emoji-picker\/picker\.js/);
   assert.match(script, /firebasejs\/12\.17\.0\/firebase-firestore\.js/);
   assert.match(script, /function startReactionRealtime\(/);
@@ -215,12 +243,18 @@ test("portal styles preserve hidden state, keyboard focus and mobile single-colu
   assert.match(modernStyles, /\.reply-menu-toggle\.btn\s*\{[^}]*width:\s*32px[^}]*height:\s*32px/s);
   assert.match(modernStyles, /\.reply-action-menu\[open\] > \.reply-menu-toggle\s*\{[^}]*background:\s*var\(--kh-purple-soft\)/s);
   assert.match(modernStyles, /\.portal-nav-secondary\s*\{[^}]*border-top:\s*0;/s);
+  assert.match(styles, /\.edit-dialog-form input:not\(\[type="checkbox"\]\)/);
+  assert.match(modernStyles, /\.space-role-fieldset\s*\{[^}]*grid-template-columns:\s*max-content repeat\(3, max-content\)/s);
+  assert.match(modernStyles, /\.space-role-fieldset input\[type="checkbox"\]\s*\{[^}]*width:\s*1rem[^}]*padding:\s*0;/s);
+  assert.match(modernStyles, /\.space-dialog-actions \.delete-space-button,\s*\.message-form-actions \.delete-thread-button\s*\{[^}]*min-height:\s*40px[^}]*padding:\s*10px 13px[^}]*color:\s*#a51d2d[^}]*border:\s*1px solid #d8a1a8[^}]*border-radius:\s*8px[^}]*background:\s*#fff5f6[^}]*font-size:\s*0\.82rem[^}]*font-weight:\s*750;/s);
+  assert.match(modernStyles, /\.edit-dialog-form \.system-message-close\s*\{[^}]*width:\s*38px[^}]*border-radius:\s*50%[^}]*background:\s*var\(--kh-surface-soft\)/s);
+  assert.match(modernStyles, /@media \(max-width: 640px\)[\s\S]*\.space-role-fieldset\s*\{[^}]*grid-template-columns:\s*repeat\(2, max-content\)/s);
 });
 
-test("Firebase portal reads avoid unnecessary composite-index dependencies at POC scale", async () => {
+test("Firebase stores use the membership collection-group index and simple status ordering", async () => {
   const stores = await readFile(firebaseStoresUrl, "utf8");
 
-  assert.doesNotMatch(stores, /collectionGroup\("members"\)\.where/);
+  assert.match(stores, /collectionGroup\("members"\)\.where/);
   assert.match(stores, /statuses\.orderBy\("sortOrder"\)\.get\(\)/);
   assert.match(stores, /results\.filter\(\(status\) => status\.active\)/);
 });

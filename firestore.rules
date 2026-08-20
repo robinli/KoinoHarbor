@@ -18,31 +18,54 @@ service cloud.firestore {
       return activeUser() && currentUser().data.role == 'admin';
     }
 
-    function isSpaceMember(spaceId) {
-      return activeUser() && exists(/databases/$(database)/documents/spaces/$(spaceId)/members/$(request.auth.uid));
+    function spaceNotDeleted(space) {
+      return !space.data.keys().hasAny(['deletedAt']) || space.data.deletedAt == null;
+    }
+
+    function isDirectSpaceMember(spaceId, space) {
+      return activeUser() && spaceNotDeleted(space)
+        && space.data.accessMode == 'restricted'
+        && exists(/databases/$(database)/documents/spaces/$(spaceId)/members/$(request.auth.uid))
+        && space.data.allowedRoles.hasAny([currentUser().data.role]);
     }
 
     function inheritsParentAccess(space) {
       return space.data.parentId != null
+        && spaceNotDeleted(space)
         && space.data.accessMode == 'inherited'
-        && isSpaceMember(space.data.parentId);
+        && isDirectSpaceMember(
+          space.data.parentId,
+          get(/databases/$(database)/documents/spaces/$(space.data.parentId))
+        );
     }
 
     function canAccessSpace(spaceId) {
-      return isAdmin()
-        || isSpaceMember(spaceId)
-        || inheritsParentAccess(get(/databases/$(database)/documents/spaces/$(spaceId)));
+      let space = get(/databases/$(database)/documents/spaces/$(spaceId));
+      return spaceNotDeleted(space) && (isDirectSpaceMember(spaceId, space) || inheritsParentAccess(space));
     }
 
     function validSpaceParent() {
       return request.resource.data.parentId == null
         || (exists(/databases/$(database)/documents/spaces/$(request.resource.data.parentId))
-          && get(/databases/$(database)/documents/spaces/$(request.resource.data.parentId)).data.parentId == null);
+          && get(/databases/$(database)/documents/spaces/$(request.resource.data.parentId)).data.parentId == null
+          && get(/databases/$(database)/documents/spaces/$(request.resource.data.parentId)).data.accessMode == 'restricted'
+          && spaceNotDeleted(get(/databases/$(database)/documents/spaces/$(request.resource.data.parentId))));
     }
 
     function validSpaceAccessMode() {
-      return request.resource.data.accessMode == 'inherited'
-        || request.resource.data.accessMode == 'restricted';
+      return (request.resource.data.parentId == null && request.resource.data.accessMode == 'restricted')
+        || (request.resource.data.parentId != null
+          && (request.resource.data.accessMode == 'inherited' || request.resource.data.accessMode == 'restricted'));
+    }
+
+    function validSpaceAllowedRoles() {
+      return request.resource.data.allowedRoles is list
+        && ((request.resource.data.accessMode == 'inherited' && request.resource.data.allowedRoles.size() == 0)
+          || (request.resource.data.accessMode == 'restricted'
+            && request.resource.data.allowedRoles.size() > 0
+            && request.resource.data.allowedRoles.size() <= 3
+            && request.resource.data.allowedRoles.toSet().size() == request.resource.data.allowedRoles.size()
+            && request.resource.data.allowedRoles.hasOnly(['admin', 'member', 'guest'])));
     }
 
     function validSpaceSortOrder() {
@@ -55,6 +78,17 @@ service cloud.firestore {
         && request.resource.data.updatedBy == request.auth.uid
         && request.resource.data.createdAt == request.time
         && request.resource.data.updatedAt == request.time;
+    }
+
+    function validSpaceDeletionOnCreate() {
+      return request.resource.data.keys().hasAll(['deletedAt', 'deletedBy'])
+        && request.resource.data.deletedAt == null
+        && request.resource.data.deletedBy == null;
+    }
+
+    function unchangedSpaceDeletion() {
+      return request.resource.data.deletedAt == resource.data.deletedAt
+        && request.resource.data.deletedBy == resource.data.deletedBy;
     }
 
     function validAuditOnUpdate() {
@@ -80,16 +114,33 @@ service cloud.firestore {
 
     match /spaces/{spaceId} {
       allow read: if canAccessSpace(spaceId);
-      allow create: if isAdmin() && validAuditOnCreate() && validSpaceParent() && validSpaceAccessMode() && validSpaceSortOrder();
-      allow update: if isAdmin() && validAuditOnUpdate()
+      allow create: if isAdmin() && validAuditOnCreate() && validSpaceDeletionOnCreate()
+        && validSpaceParent() && validSpaceAccessMode() && validSpaceAllowedRoles() && validSpaceSortOrder();
+      allow update: if isAdmin() && spaceNotDeleted(resource) && unchangedSpaceDeletion() && validAuditOnUpdate()
         && request.resource.data.parentId == resource.data.parentId
         && request.resource.data.accessMode == resource.data.accessMode
+        && validSpaceAllowedRoles()
         && validSpaceSortOrder();
       allow delete: if false;
 
       match /members/{userId} {
-        allow read: if isAdmin() || (activeUser() && request.auth.uid == userId);
-        allow write: if isAdmin();
+        allow read: if spaceNotDeleted(get(/databases/$(database)/documents/spaces/$(spaceId)))
+          && (isAdmin() || (activeUser() && request.auth.uid == userId));
+        allow create: if isAdmin()
+          && request.resource.data.userId == userId
+          && request.resource.data.spaceId == spaceId
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.keys().hasOnly(['createdAt', 'createdBy', 'spaceId', 'userId'])
+          && get(/databases/$(database)/documents/users/$(userId)).data.active == true
+          && spaceNotDeleted(get(/databases/$(database)/documents/spaces/$(spaceId)))
+          && get(/databases/$(database)/documents/spaces/$(spaceId)).data.archived == false
+          && get(/databases/$(database)/documents/spaces/$(spaceId)).data.accessMode == 'restricted'
+          && get(/databases/$(database)/documents/spaces/$(spaceId)).data.allowedRoles.hasAny([
+            get(/databases/$(database)/documents/users/$(userId)).data.role
+          ]);
+        allow delete: if isAdmin() && spaceNotDeleted(get(/databases/$(database)/documents/spaces/$(spaceId)));
+        allow update: if false;
       }
 
       match /messageReactions/{reactionId} {
