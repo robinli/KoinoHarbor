@@ -1588,16 +1588,20 @@ function renderReplyTree(thread, replies, attachments, container, onRefresh) {
     replyButton.append(replyIcon);
     actions.append(replyButton);
     const canEditReply = signedInUser.id === reply.authorId;
+    let editButton = null;
     if (canEditReply) {
-      const separator = document.createElement("span");
-      separator.className = "reply-action-separator";
-      separator.textContent = "|";
-      const editButton = document.createElement("button");
+      editButton = document.createElement("button");
       editButton.type = "button";
-      editButton.className = "reply-inline-action";
-      editButton.textContent = "編輯";
-      actions.append(separator, editButton);
+      editButton.className = "thread-menu-item btn btn-quiet";
+      editButton.setAttribute("role", "menuitem");
+      const editIcon = document.createElement("i");
+      editIcon.className = "bi bi-pencil";
+      editIcon.setAttribute("aria-hidden", "true");
+      const editLabel = document.createElement("span");
+      editLabel.textContent = "編輯";
+      editButton.append(editIcon, editLabel);
       editButton.addEventListener("click", () => {
+        unreadMenu.removeAttribute("open");
         if (item.querySelector(":scope > .message-edit-form")) return;
         message.hidden = true;
         const pendingRemovalIds = new Set();
@@ -1683,13 +1687,18 @@ function renderReplyTree(thread, replies, attachments, container, onRefresh) {
     unreadMenuIcon.setAttribute("aria-hidden", "true");
     unreadMenuToggle.append(unreadMenuIcon);
     const unreadMenuList = document.createElement("div");
-    unreadMenuList.className = "reply-menu-list";
+    unreadMenuList.className = "reply-menu-list thread-menu-list";
     unreadMenuList.setAttribute("role", "menu");
     const unreadButton = document.createElement("button");
     unreadButton.type = "button";
-    unreadButton.className = "reply-menu-item btn btn-quiet";
+    unreadButton.className = "thread-menu-item btn btn-quiet";
     unreadButton.setAttribute("role", "menuitem");
-    unreadButton.textContent = "設定未讀取";
+    const unreadIcon = document.createElement("i");
+    unreadIcon.className = "bi bi-envelope";
+    unreadIcon.setAttribute("aria-hidden", "true");
+    const unreadLabel = document.createElement("span");
+    unreadLabel.textContent = "設定未讀取";
+    unreadButton.append(unreadIcon, unreadLabel);
     unreadButton.addEventListener("click", async () => {
       unreadMenu.removeAttribute("open");
       unreadButton.disabled = true;
@@ -1701,6 +1710,7 @@ function renderReplyTree(thread, replies, attachments, container, onRefresh) {
         unreadButton.disabled = false;
       }
     });
+    if (editButton) unreadMenuList.append(editButton);
     unreadMenuList.append(unreadButton);
     unreadMenu.append(unreadMenuToggle, unreadMenuList);
     unreadMenu.addEventListener("toggle", () => unreadMenuToggle.setAttribute("aria-expanded", String(unreadMenu.open)));

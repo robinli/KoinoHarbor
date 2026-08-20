@@ -109,7 +109,13 @@ test("portal client aggregates accessible threads and disables creation without 
   assert.match(script, /addMenuItem\("編輯", "bi-pencil"/);
   assert.match(script, /addMenuItem\("設定未讀取", "bi-envelope"/);
   assert.match(script, /className = "reply-action-menu"/);
-  assert.match(script, /unreadButton\.textContent = "設定未讀取"/);
+  assert.match(script, /unreadMenuList\.className = "reply-menu-list thread-menu-list"/);
+  assert.match(script, /editButton\.className = "thread-menu-item btn btn-quiet"/);
+  assert.match(script, /editIcon\.className = "bi bi-pencil"/);
+  assert.match(script, /unreadIcon\.className = "bi bi-envelope"/);
+  assert.match(script, /unreadLabel\.textContent = "設定未讀取"/);
+  assert.match(script, /if \(editButton\) unreadMenuList\.append\(editButton\)/);
+  assert.doesNotMatch(script, /actions\.append\(separator, editButton\)/);
   assert.match(script, /fetch\("\/api\/unread\/read"/);
   assert.match(script, /new IntersectionObserver/);
   assert.match(script, /threshold: 0\.25/);
@@ -206,8 +212,8 @@ test("portal styles preserve hidden state, keyboard focus and mobile single-colu
   assert.doesNotMatch(modernStyles, /\.reaction-add-plus\s*\{/);
   assert.match(modernStyles, /\.emoji-picker-popover\s*\{/);
   assert.match(modernStyles, /--num-columns:\s*9/);
-  assert.match(modernStyles, /\.reply-menu-item\.btn\s*\{[^}]*color:\s*#514f53[^}]*background:\s*transparent/s);
-  assert.match(modernStyles, /\.reply-menu-item\.btn:hover,[\s\S]*?background:\s*var\(--kh-surface-soft\)/s);
+  assert.match(modernStyles, /\.reply-menu-toggle\.btn\s*\{[^}]*width:\s*32px[^}]*height:\s*32px/s);
+  assert.match(modernStyles, /\.reply-action-menu\[open\] > \.reply-menu-toggle\s*\{[^}]*background:\s*var\(--kh-purple-soft\)/s);
   assert.match(modernStyles, /\.portal-nav-secondary\s*\{[^}]*border-top:\s*0;/s);
 });
 

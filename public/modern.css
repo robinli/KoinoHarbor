@@ -1212,11 +1212,15 @@ textarea.form-control {
 
 .reply-menu-toggle.btn {
   display: inline-flex;
-  min-height: 24px;
+  width: 32px;
+  height: 32px;
+  min-height: 32px;
   align-items: center;
-  padding: 1px 4px;
+  justify-content: center;
+  padding: 0;
   color: inherit;
   border: 0;
+  border-radius: 7px;
   background: transparent;
 }
 
@@ -1237,23 +1241,9 @@ textarea.form-control {
   box-shadow: 0 5px 16px rgb(29 28 29 / 14%);
 }
 
-.reply-menu-item.btn {
-  width: 100%;
-  min-height: 30px;
-  padding: 4px 8px;
-  color: #514f53;
-  border: 0;
-  background: transparent;
-  text-align: left;
-  white-space: nowrap;
-}
-
-.reply-menu-item.btn:hover,
-.reply-menu-item.btn:focus-visible,
-.reply-menu-item.btn:active {
+.reply-action-menu[open] > .reply-menu-toggle {
   color: var(--kh-purple-dark);
-  border: 0;
-  background: var(--kh-surface-soft);
+  background: var(--kh-purple-soft);
 }
 
 .thread-action-separator {
@@ -1555,10 +1545,6 @@ textarea.form-control {
 .thread-card .reply-inline-action.btn:hover {
   color: var(--kh-purple-dark);
   background: var(--kh-purple-soft);
-}
-
-.reply-action-separator {
-  color: var(--kh-line-strong);
 }
 
 .reply-children {
