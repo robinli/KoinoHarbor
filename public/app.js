@@ -32,9 +32,13 @@ const portalLogoutButton = document.querySelector("#portal-logout-button");
 const portalAdminNav = document.querySelector("#portal-admin-nav");
 const portalAllSpaces = document.querySelector("#portal-all-spaces");
 const portalBookmarks = document.querySelector("#portal-bookmarks");
+const portalJoinable = document.querySelector("#portal-joinable");
 const portalSpaceList = document.querySelector("#portal-space-list");
+const joinableMessage = document.querySelector("#joinable-message");
+const membershipSpaceList = document.querySelector("#membership-space-list");
 const spacesTitle = document.querySelector("#spaces-title");
 const createRootSpaceButton = document.querySelector("#create-root-space-button");
+const spaceStateFilter = document.querySelector("#space-state-filter");
 const discussionTitle = document.querySelector("#discussion-title");
 const dashboardThreadList = document.querySelector("#dashboard-thread-list");
 const dashboardSpaceFilter = document.querySelector("#dashboard-space-filter");
@@ -50,10 +54,16 @@ const spaceEditForm = document.querySelector("#space-edit-form");
 const spaceEditMessage = document.querySelector("#space-edit-message");
 const spaceDialogTitle = document.querySelector("#space-dialog-title");
 const spaceDialogSubmit = document.querySelector("#space-dialog-submit");
+const spaceDialogDelete = document.querySelector("#space-dialog-delete");
 const spaceAccessModeField = document.querySelector("#space-access-mode-field");
+const spaceRoleFieldset = document.querySelector("#space-role-fieldset");
+const spaceInheritedNote = document.querySelector("#space-inherited-note");
 const spaceArchivedField = document.querySelector("#space-archived-field");
 let availableUsers = [];
 let availableSpaces = [];
+let managedSpaces = [];
+let joinableSpaces = [];
+let managedSpaceState = "active";
 let availableStatuses = [];
 let signedInUser = null;
 let runtimeConfig = null;
@@ -108,7 +118,7 @@ function enhanceBootstrapUI(root = document) {
 
   for (const button of selectAll("button:not(.btn)")) {
     button.classList.add("btn");
-    if (button.matches(".delete-status-button")) {
+    if (button.matches(".delete-status-button, .delete-space-button, .delete-thread-button")) {
       button.classList.add("btn-danger");
     } else if (
       button.matches(".secondary-button, .text-button, .subtle-button, .dialog-close, .portal-logout, .archive-space-button")
@@ -178,9 +188,14 @@ function resetPortalData() {
   }
   availableUsers = [];
   availableSpaces = [];
+  managedSpaces = [];
+  joinableSpaces = [];
+  managedSpaceState = "active";
+  spaceStateFilter.value = "active";
   availableStatuses = [];
   userTableBody.replaceChildren();
   spaceList.replaceChildren();
+  membershipSpaceList.replaceChildren();
   statusList.replaceChildren();
   threadList.replaceChildren();
   dashboardThreadList.replaceChildren();
@@ -581,7 +596,7 @@ async function loadSpaceMembers(spaceId, listElement) {
   listElement.replaceChildren(...payload.members.map((membership) => {
     const item = document.createElement("li");
     const label = document.createElement("span");
-    label.textContent = `${membership.user?.email ?? membership.userId} · ${membership.role}`;
+    label.textContent = `${membership.user?.email ?? membership.userId} · ${membership.user?.role ?? "未知群組"}`;
     const removeButton = document.createElement("button");
     removeButton.type = "button";
     removeButton.textContent = "移除";
@@ -598,6 +613,76 @@ async function loadSpaceMembers(spaceId, listElement) {
   }));
 }
 
+function createMembershipSpaceRow(space) {
+  const membershipType = space.membershipType ?? "joinable";
+  const isDirectMember = membershipType === "direct";
+  const isInheritedMember = membershipType === "inherited";
+  const row = document.createElement("article");
+  row.className = `membership-space-row${space.parentId ? " is-child-space" : ""}`;
+  const details = document.createElement("div");
+  details.className = "membership-space-details";
+  const title = document.createElement("h3");
+  title.textContent = `# ${space.name}`;
+  const metadata = document.createElement("p");
+  metadata.className = "membership-space-metadata";
+  if (isDirectMember || isInheritedMember) {
+    const joinedStatus = document.createElement("strong");
+    joinedStatus.textContent = isInheritedMember ? "✓ 已加入（繼承）" : "✓ 已加入";
+    metadata.append(joinedStatus);
+    if (space.description) metadata.append(` · ${space.description}`);
+  } else {
+    metadata.textContent = space.description || "尚未提供說明。";
+  }
+  details.append(title, metadata);
+  const button = document.createElement("button");
+  button.type = "button";
+  button.textContent = isDirectMember ? "退出" : "加入";
+  button.disabled = isInheritedMember;
+  if (isInheritedMember) button.title = "此工作區由父層成員資格繼承，無需另外加入。";
+  button.addEventListener("click", async () => {
+    button.disabled = true;
+    setSystemMessage(joinableMessage, "");
+    try {
+      if (await (isDirectMember ? leaveSpace(space) : joinSpace(space)) === false) return;
+      await loadSpaces();
+      await loadMembershipSpaces();
+      await loadUnreadSummary();
+      setSystemMessage(joinableMessage, isDirectMember ? `已退出「${space.name}」。` : `已加入「${space.name}」。`);
+    } catch (error) {
+      setSystemMessage(joinableMessage, error.message, "error");
+    } finally {
+      button.disabled = false;
+    }
+  });
+  row.append(details, button);
+  return row;
+}
+
+async function joinSpace(space) {
+  const response = await fetch(`/api/spaces/${encodeURIComponent(space.id)}/membership`, { method: "PUT" });
+  await readJsonResponse(response);
+  return true;
+}
+
+async function leaveSpace(space) {
+  const affected = availableSpaces.filter((candidate) => candidate.parentId === space.id && candidate.membershipType === "inherited");
+  const suffix = affected.length ? `\n退出後也會失去：${affected.map((candidate) => candidate.name).join("、")}` : "";
+  if (!window.confirm(`確定退出「${space.name}」？${suffix}`)) return false;
+  const response = await fetch(`/api/spaces/${encodeURIComponent(space.id)}/membership`, { method: "DELETE" });
+  await readJsonResponse(response);
+  return true;
+}
+
+async function loadMembershipSpaces() {
+  const response = await fetch("/api/spaces/joinable", { headers: { Accept: "application/json" } });
+  joinableSpaces = (await readJsonResponse(response)).spaces;
+  const spacesById = new Map(joinableSpaces.map((space) => [space.id, space]));
+  for (const space of availableSpaces) spacesById.set(space.id, space);
+  const spaces = orderedSpaces([...spacesById.values()]);
+  membershipSpaceList.replaceChildren(...spaces.map(createMembershipSpaceRow));
+  if (!spaces.length) membershipSpaceList.textContent = "目前沒有可加入的工作區。";
+}
+
 function userInitials(displayName) {
   const parts = displayName.trim().split(/\s+/).filter(Boolean);
   const initials = parts.slice(0, 2).map((part) => part[0]).join("");
@@ -605,17 +690,17 @@ function userInitials(displayName) {
 }
 
 function renderSpaceOverview() {
-  const selectedSpace = availableSpaces.find((space) => space.id === selectedSidebarSpaceId) ?? null;
-  const visibleSpaces = selectedSpace ? [selectedSpace] : orderedSpaces(availableSpaces);
+  const selectedSpace = managedSpaces.find((space) => space.id === selectedSidebarSpaceId) ?? null;
+  const visibleSpaces = selectedSpace ? [selectedSpace] : orderedSpaces(managedSpaces);
 
   spacesTitle.textContent = selectedSpace?.name ?? "工作區管理";
-  createRootSpaceButton.hidden = signedInUser?.role !== "admin";
+  createRootSpaceButton.hidden = signedInUser?.role !== "admin" || managedSpaceState !== "active";
   spaceList.replaceChildren(...visibleSpaces.map(createSpaceCard));
 
   if (!visibleSpaces.length) {
     const empty = document.createElement("p");
     empty.className = "empty-state";
-    empty.textContent = "目前沒有可顯示的工作區。";
+    empty.textContent = managedSpaceState === "deleted" ? "目前沒有已刪除的工作區。" : "目前沒有可顯示的工作區。";
     spaceList.append(empty);
   }
 
@@ -638,15 +723,43 @@ function orderedSpaces(spaces) {
   return roots.sort(bySortOrderThenName).flatMap((space) => [space, ...(childrenByParent.get(space.id) ?? []).sort(bySortOrderThenName)]);
 }
 
-function showSpaceOverview(spaceId = null) {
+async function showSpaceOverview(spaceId = null) {
   selectedSidebarSpaceId = spaceId;
   showPortalView("spaces");
+  await loadAdminSpaces();
   renderSpaceOverview();
+}
+
+async function loadAdminSpaces() {
+  if (signedInUser?.role !== "admin") return;
+  const response = await fetch(`/api/admin/spaces?state=${encodeURIComponent(managedSpaceState)}`, { headers: { Accept: "application/json" } });
+  managedSpaces = (await readJsonResponse(response)).spaces;
+}
+
+async function deleteManagedSpace(space) {
+  const impact = space.parentId
+    ? "刪除後使用者將無法存取此子工作區，但內容與成員資料會保留。"
+    : "刪除後使用者將無法存取此工作區；若尚有使用中的子工作區，系統會拒絕操作。";
+  if (!window.confirm(`確定刪除「${space.name}」？\n${impact}`)) return false;
+  const response = await fetch(`/api/spaces/${encodeURIComponent(space.id)}`, { method: "DELETE" });
+  await readJsonResponse(response);
+  selectedSidebarSpaceId = null;
+  await loadSpaces();
+  setSystemMessage(spaceMessage, `已刪除「${space.name}」，可於「已刪除」清單還原。`);
+  return true;
+}
+
+async function restoreManagedSpace(space) {
+  const response = await fetch(`/api/spaces/${encodeURIComponent(space.id)}/restore`, { method: "POST" });
+  await readJsonResponse(response);
+  selectedSidebarSpaceId = null;
+  await loadSpaces();
+  setSystemMessage(spaceMessage, `已還原「${space.name}」。`);
 }
 
 function createSpaceCard(space) {
   const card = document.createElement("article");
-  card.className = `space-item${space.archived ? " is-archived" : ""}${space.parentId ? " is-child-space" : ""}`;
+  card.className = `space-item${space.archived ? " is-archived" : ""}${space.deletedAt ? " is-deleted" : ""}${space.parentId ? " is-child-space" : ""}`;
   const header = document.createElement("div");
   header.className = "space-item-header";
   const headingGroup = document.createElement("div");
@@ -656,30 +769,46 @@ function createSpaceCard(space) {
   header.append(headingGroup);
 
   if (signedInUser.role === "admin") {
-    const editButton = document.createElement("button");
-    editButton.type = "button";
-    editButton.className = "edit-space-button";
-    editButton.textContent = "編輯工作區";
-    editButton.addEventListener("click", () => openSpaceDialog({ space }));
     const actions = document.createElement("div");
     actions.className = "space-item-actions";
-    actions.append(editButton);
-    if (!space.parentId) {
-      const childButton = document.createElement("button");
-      childButton.type = "button";
-      childButton.className = "secondary-button";
-      childButton.textContent = "新增子工作區";
-      childButton.addEventListener("click", () => openSpaceDialog({ parent: space }));
-      actions.append(childButton);
+    if (space.deletedAt) {
+      const restoreButton = document.createElement("button");
+      restoreButton.type = "button";
+      restoreButton.className = "restore-space-button";
+      restoreButton.textContent = "還原";
+      restoreButton.addEventListener("click", () => restoreManagedSpace(space).catch((error) => {
+        setSystemMessage(spaceMessage, error.message, "error");
+      }));
+      actions.append(restoreButton);
+      header.append(actions);
+    } else {
+      const editButton = document.createElement("button");
+      editButton.type = "button";
+      editButton.className = "edit-space-button";
+      editButton.textContent = "編輯工作區";
+      editButton.addEventListener("click", () => openSpaceDialog({ space }));
+      actions.append(editButton);
+      if (!space.parentId) {
+        const childButton = document.createElement("button");
+        childButton.type = "button";
+        childButton.className = "secondary-button";
+        childButton.textContent = "新增子工作區";
+        childButton.addEventListener("click", () => openSpaceDialog({ parent: space }));
+        actions.append(childButton);
+      }
+      header.append(actions);
     }
-    header.append(actions);
   }
 
   const description = document.createElement("p");
   description.textContent = `排序:${space.sortOrder ?? 0} ${space.description || "尚未提供說明。"}`;
-  card.append(header, description);
+  const allowedGroups = document.createElement("p");
+  allowedGroups.textContent = space.accessMode === "inherited"
+    ? "群組與成員資格：繼承父工作區"
+    : `允許群組：${space.allowedRoles.join("、")}`;
+  card.append(header, description, allowedGroups);
 
-  if (signedInUser.role === "admin") {
+  if (signedInUser.role === "admin" && !space.deletedAt && space.accessMode === "restricted") {
     const editor = document.createElement("div");
     editor.className = "member-editor";
     const editorTitle = document.createElement("h4");
@@ -688,19 +817,11 @@ function createSpaceCard(space) {
     control.className = "member-control";
     const userSelect = document.createElement("select");
     userSelect.setAttribute("aria-label", `${space.name} 新增成員`);
-    for (const user of availableUsers.filter((item) => item.active)) {
+    for (const user of availableUsers.filter((item) => item.active && space.allowedRoles.includes(item.role))) {
       const option = document.createElement("option");
       option.value = user.id;
-      option.textContent = user.email;
+      option.textContent = `${user.email} · ${user.role}`;
       userSelect.append(option);
-    }
-    const roleSelect = document.createElement("select");
-    roleSelect.setAttribute("aria-label", `${space.name} 成員角色`);
-    for (const roleValue of ["member", "manager", "guest"]) {
-      const option = document.createElement("option");
-      option.value = roleValue;
-      option.textContent = roleValue;
-      roleSelect.append(option);
     }
     const addButton = document.createElement("button");
     addButton.type = "button";
@@ -714,7 +835,7 @@ function createSpaceCard(space) {
         const response = await fetch(`/api/spaces/${encodeURIComponent(space.id)}/members`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ role: roleSelect.value, userId: userSelect.value }),
+          body: JSON.stringify({ userId: userSelect.value }),
         });
         await readJsonResponse(response);
         await loadSpaceMembers(space.id, memberList);
@@ -722,7 +843,8 @@ function createSpaceCard(space) {
         setSystemMessage(spaceMessage, error.message, "error");
       }
     });
-    control.append(userSelect, roleSelect, addButton);
+    addButton.disabled = userSelect.options.length === 0;
+    control.append(userSelect, addButton);
     editor.append(editorTitle, control, memberList);
     card.append(editor);
     loadSpaceMembers(space.id, memberList).catch((error) => {
@@ -731,6 +853,13 @@ function createSpaceCard(space) {
   }
 
   return card;
+}
+
+function syncSpaceAccessControls() {
+  const inherited = spaceEditForm.elements.accessMode.value === "inherited";
+  spaceRoleFieldset.hidden = inherited;
+  spaceInheritedNote.hidden = !inherited;
+  for (const input of spaceEditForm.elements.allowedRoles) input.disabled = inherited;
 }
 
 function openSpaceDialog({ parent = null, space = null } = {}) {
@@ -742,12 +871,17 @@ function openSpaceDialog({ parent = null, space = null } = {}) {
   spaceEditForm.elements.sortOrder.value = space?.sortOrder ?? 0;
   spaceEditForm.elements.description.value = space?.description ?? "";
   spaceEditForm.elements.archived.value = String(Boolean(space?.archived));
-  spaceAccessModeField.hidden = !creating;
+  spaceEditForm.elements.accessMode.value = space?.accessMode ?? (parent ? "inherited" : "restricted");
+  const selectedRoles = new Set(space?.allowedRoles ?? []);
+  for (const input of spaceEditForm.elements.allowedRoles) input.checked = selectedRoles.has(input.value);
+  spaceAccessModeField.hidden = !creating || parent === null;
   spaceArchivedField.hidden = creating;
+  syncSpaceAccessControls();
   spaceDialogTitle.textContent = creating
     ? (parent ? `在「${parent.name}」下新增子工作區` : "新增頂層工作區")
     : "編輯工作區";
   spaceDialogSubmit.textContent = creating ? "建立工作區" : "儲存變更";
+  spaceDialogDelete.hidden = creating;
   setSystemMessage(spaceEditMessage, "");
   spaceEditDialog.showModal();
   spaceEditForm.elements.name.focus();
@@ -820,7 +954,10 @@ async function loadSpaces() {
     if (selectedSidebarSpaceId && !activeSpaces.some((space) => space.id === selectedSidebarSpaceId)) {
       selectedSidebarSpaceId = null;
     }
-    renderSpaceOverview();
+    if (!spacesPanel.hidden && signedInUser?.role === "admin") {
+      await loadAdminSpaces();
+      renderSpaceOverview();
+    }
     if (!discussionPanel.hidden) {
       const selectedSpace = activeSpaces.find((space) => space.id === selectedThreadSpaceId) ?? null;
       updateDiscussionHeading(selectedSpace);
@@ -1632,7 +1769,7 @@ function renderReplyTree(thread, replies, attachments, container, onRefresh) {
         const deleteButton = document.createElement("button");
         deleteButton.type = "button";
         deleteButton.className = "delete-thread-button";
-        deleteButton.textContent = "刪除回覆";
+        deleteButton.textContent = "刪除";
         deleteButton.addEventListener("click", async () => {
           if (!window.confirm("確定刪除此回覆嗎？刪除後不會顯示在畫面上，但資料仍會保留。")) return;
           deleteButton.disabled = true;
@@ -1942,7 +2079,7 @@ function createThreadCard(thread) {
     const deleteButton = document.createElement("button");
     deleteButton.type = "button";
     deleteButton.className = "delete-thread-button";
-    deleteButton.textContent = "刪除討論";
+    deleteButton.textContent = "刪除";
     deleteButton.addEventListener("click", async () => {
       if (!window.confirm("確定刪除此討論嗎？刪除後不會顯示在畫面上，但資料仍會保留。")) return;
       deleteButton.disabled = true;
@@ -2250,18 +2387,24 @@ spaceEditForm.addEventListener("submit", async (event) => {
   try {
     const spaceId = formData.get("spaceId");
     const creating = !spaceId;
+    const parentId = formData.get("parentId") || null;
+    const accessMode = creating ? (parentId ? formData.get("accessMode") : "restricted") : spaceEditForm.elements.accessMode.value;
+    const allowedRoles = accessMode === "inherited" ? [] : formData.getAll("allowedRoles");
+    if (accessMode === "restricted" && !allowedRoles.length) throw new Error("請至少選擇一個允許加入的群組。");
     const response = await fetch(creating ? "/api/spaces" : `/api/spaces/${encodeURIComponent(spaceId)}`, {
       method: creating ? "POST" : "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(creating
         ? {
-          accessMode: formData.get("accessMode"),
+          accessMode,
+          allowedRoles,
           description: formData.get("description"),
           name: formData.get("name"),
-          parentId: formData.get("parentId") || null,
+          parentId,
           sortOrder: Number.parseInt(formData.get("sortOrder"), 10),
         }
         : {
+          allowedRoles,
           archived: formData.get("archived") === "true",
           description: formData.get("description"),
           name: formData.get("name"),
@@ -2270,7 +2413,9 @@ spaceEditForm.addEventListener("submit", async (event) => {
     });
     await readJsonResponse(response);
     spaceEditDialog.close();
+    await loadAdminSpaces();
     await loadSpaces();
+    renderSpaceOverview();
     if (!discussionPanel.hidden) await loadThreads();
     setSystemMessage(spaceMessage, creating ? "工作區已建立。" : "工作區已更新。");
   } catch (error) {
@@ -2281,6 +2426,25 @@ spaceEditForm.addEventListener("submit", async (event) => {
 });
 
 createRootSpaceButton.addEventListener("click", () => openSpaceDialog());
+spaceDialogDelete.addEventListener("click", async () => {
+  const space = managedSpaces.find((item) => item.id === spaceEditForm.elements.spaceId.value);
+  if (!space) return;
+
+  try {
+    const deleted = await deleteManagedSpace(space);
+    if (deleted) spaceEditDialog.close();
+  } catch (error) {
+    setSystemMessage(spaceEditMessage, error.message, "error");
+  }
+});
+spaceEditForm.elements.accessMode.addEventListener("change", syncSpaceAccessControls);
+spaceStateFilter.addEventListener("change", async () => {
+  managedSpaceState = spaceStateFilter.value;
+  selectedSidebarSpaceId = null;
+  setSystemMessage(spaceMessage, "");
+  await loadAdminSpaces();
+  renderSpaceOverview();
+});
 
 threadForm.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -2375,10 +2539,11 @@ for (const button of document.querySelectorAll("[data-portal-target]")) {
   button.addEventListener("click", async () => {
     const viewName = button.dataset.portalTarget;
     if (viewName === "spaces") {
-      showSpaceOverview();
+      await showSpaceOverview();
       return;
     }
     showPortalView(viewName);
+    if (viewName === "joinable") await loadMembershipSpaces();
     if (viewName === "home") await loadDashboard();
     if (viewName === "discussions") {
       await showWorkspaceThreads();

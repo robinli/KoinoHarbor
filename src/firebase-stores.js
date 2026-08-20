@@ -13,6 +13,7 @@ function plain(document) {
   return {
     ...data,
     createdAt: iso(data.createdAt),
+    ...(Object.hasOwn(data, "deletedAt") ? { deletedAt: iso(data.deletedAt) } : {}),
     id: document.id,
     updatedAt: iso(data.updatedAt),
   };
@@ -28,6 +29,12 @@ function validationError(message) {
   return error;
 }
 
+function conflictError(message) {
+  const error = new Error(message);
+  error.statusCode = 409;
+  return error;
+}
+
 function requiredText(value, name) {
   if (typeof value !== "string" || !value.trim()) throw validationError(`${name}不可為空白。`);
   return value.trim();
@@ -39,6 +46,20 @@ function sortOrder(value) {
   return result;
 }
 
+function allowedRoles(value, mode) {
+  if (mode === "inherited") {
+    if (!Array.isArray(value) || value.length !== 0) {
+      throw validationError("繼承父層成員的子工作區不可設定允許群組。");
+    }
+    return [];
+  }
+  const validRoles = new Set(["admin", "member", "guest"]);
+  if (!Array.isArray(value) || value.length === 0) throw validationError("工作區至少必須允許一個群組加入。");
+  if (value.some((role) => !validRoles.has(role))) throw validationError("允許群組只能包含 admin、member 或 guest。");
+  if (new Set(value).size !== value.length) throw validationError("允許群組不可重複。");
+  return [...value];
+}
+
 export function createFirestoreSpaceStore(app) {
   const firestore = getFirestore(app);
   const spaces = firestore.collection("spaces");
@@ -47,12 +68,19 @@ export function createFirestoreSpaceStore(app) {
     if (parentId === undefined || parentId === null || parentId === "") return null;
     if (typeof parentId !== "string" || !parentId.trim()) throw validationError("父工作區必須是有效的工作區 ID。");
     const parent = plain(await spaces.doc(parentId).get());
-    if (!parent || parent.parentId !== null) throw validationError("父工作區不存在或不是頂層工作區。");
+    if (!parent || parent.parentId !== null || parent.deletedAt) throw validationError("父工作區不存在、已刪除或不是頂層工作區。");
     return parentId;
   }
 
-  function accessMode(input) {
-    const value = input ?? "inherited";
+  function accessMode(input, parentId) {
+    if (parentId === null) {
+      if (input !== undefined && input !== null && input !== "restricted") {
+        throw validationError("頂層工作區的存取模式只能是 restricted。");
+      }
+      return "restricted";
+    }
+    if (input === undefined || input === null) throw validationError("子工作區必須指定存取模式。");
+    const value = input;
     if (!["inherited", "restricted"].includes(value)) throw validationError("工作區存取模式必須是 inherited 或 restricted。");
     return value;
   }
@@ -62,11 +90,15 @@ export function createFirestoreSpaceStore(app) {
       const reference = spaces.doc();
       const now = serverTimestamp();
       const parentId = await validateParent(input.parentId);
+      const mode = accessMode(input.accessMode, parentId);
       const data = {
-        accessMode: accessMode(input.accessMode),
+        accessMode: mode,
+        allowedRoles: allowedRoles(input.allowedRoles, mode),
         archived: false,
         createdAt: now,
         createdBy: actor.id,
+        deletedAt: null,
+        deletedBy: null,
         description: typeof input.description === "string" ? input.description.trim() : "",
         name: requiredText(input.name, "工作區名稱"),
         parentId,
@@ -85,28 +117,62 @@ export function createFirestoreSpaceStore(app) {
     async canAccess(spaceId, user) {
       if (!user?.active) return false;
       const space = plain(await spaces.doc(spaceId).get());
-      if (!space) return false;
-      if (user.role === "admin") return true;
-      if ((await spaces.doc(spaceId).collection("members").doc(user.id).get()).exists) return true;
-      return space.parentId !== null
-        && space.accessMode === "inherited"
-        && (await spaces.doc(space.parentId).collection("members").doc(user.id).get()).exists;
+      if (!space || space.deletedAt) return false;
+      if (space.accessMode === "restricted" && space.allowedRoles.includes(user.role)
+        && (await spaces.doc(spaceId).collection("members").doc(user.id).get()).exists) return true;
+      if (space.parentId === null || space.accessMode !== "inherited") return false;
+      const parent = plain(await spaces.doc(space.parentId).get());
+      return Boolean(parent && !parent.deletedAt && parent.accessMode === "restricted" && parent.allowedRoles.includes(user.role)
+        && (await spaces.doc(parent.id).collection("members").doc(user.id).get()).exists);
+    },
+
+    async canJoin(spaceId, user) {
+      if (!user?.active) return false;
+      const space = plain(await spaces.doc(spaceId).get());
+      return Boolean(space && !space.deletedAt && !space.archived && space.accessMode === "restricted"
+        && space.allowedRoles.includes(user.role));
     },
 
     async listSpaces(user) {
       const snapshot = await spaces.get();
       const order = (left, right) => (left.parentId ? 1 : 0) - (right.parentId ? 1 : 0) || (left.sortOrder ?? 0) - (right.sortOrder ?? 0) || left.name.localeCompare(right.name);
-      if (user.role === "admin") return snapshot.docs.map(plain).sort(order);
       const results = await Promise.all(snapshot.docs.map(async (space) => ({
         space: plain(space),
         accessible: await this.canAccess(space.id, user),
+        direct: (await space.ref.collection("members").doc(user.id).get()).exists,
       })));
-      return results.filter((item) => item.accessible).map((item) => item.space).sort(order);
+      return results
+        .filter((item) => item.accessible)
+        .map((item) => ({ ...item.space, membershipType: item.direct && item.space.allowedRoles.includes(user.role) ? "direct" : "inherited" }))
+        .sort(order);
+    },
+
+    async listAllSpaces({ state = "active" } = {}) {
+      const order = (left, right) => (left.parentId ? 1 : 0) - (right.parentId ? 1 : 0) || (left.sortOrder ?? 0) - (right.sortOrder ?? 0) || left.name.localeCompare(right.name);
+      return (await spaces.get()).docs.map(plain)
+        .filter((space) => state === "all" || (state === "deleted" ? Boolean(space.deletedAt) : !space.deletedAt))
+        .sort(order);
+    },
+
+    async listJoinableSpaces(user) {
+      const snapshot = await spaces.get();
+      const order = (left, right) => (left.parentId ? 1 : 0) - (right.parentId ? 1 : 0) || (left.sortOrder ?? 0) - (right.sortOrder ?? 0) || left.name.localeCompare(right.name);
+      const results = await Promise.all(snapshot.docs.map(async (document) => {
+        const space = plain(document);
+        return {
+          space,
+          joinable: !space.deletedAt && !space.archived && space.accessMode === "restricted"
+            && space.allowedRoles.includes(user.role) && !await this.canAccess(space.id, user),
+        };
+      }));
+      return results.filter((item) => item.joinable).map((item) => item.space).sort(order);
     },
 
     async updateSpace(spaceId, changes, actor) {
       const reference = spaces.doc(spaceId);
-      if (!(await reference.get()).exists) return null;
+      const existing = plain(await reference.get());
+      if (!existing) return null;
+      if (existing.deletedAt) throw conflictError("已刪除的工作區必須先還原才能編輯。");
       if (changes.parentId !== undefined || changes.accessMode !== undefined) throw validationError("工作區階層與存取模式建立後不可變更。");
       const update = { updatedAt: serverTimestamp(), updatedBy: actor.id };
       if (changes.name !== undefined) update.name = requiredText(changes.name, "工作區名稱");
@@ -116,16 +182,60 @@ export function createFirestoreSpaceStore(app) {
         if (typeof changes.archived !== "boolean") throw validationError("archived 必須是布林值。");
         update.archived = changes.archived;
       }
+      if (changes.allowedRoles !== undefined) update.allowedRoles = allowedRoles(changes.allowedRoles, existing.accessMode);
       await reference.update(update);
       return plain(await reference.get());
     },
 
-    async addMember(spaceId, user, role, actor) {
-      if (!["manager", "member", "guest"].includes(role)) throw validationError("成員角色必須是 manager、member 或 guest。");
+    async deleteSpace(spaceId, actor) {
       const reference = spaces.doc(spaceId);
-      if (!(await reference.get()).exists) return null;
-      const membership = { createdAt: serverTimestamp(), createdBy: actor.id, role, spaceId, userId: user.id };
-      await reference.collection("members").doc(user.id).set(membership);
+      const space = plain(await reference.get());
+      if (!space) return null;
+      if (space.deletedAt) return space;
+      const children = await spaces.where("parentId", "==", spaceId).get();
+      if (children.docs.some((document) => !plain(document).deletedAt)) {
+        throw conflictError("請先刪除此工作區下尚在使用的子工作區。");
+      }
+      const now = serverTimestamp();
+      await reference.update({ deletedAt: now, deletedBy: actor.id, updatedAt: now, updatedBy: actor.id });
+      return plain(await reference.get());
+    },
+
+    async restoreSpace(spaceId, actor) {
+      const reference = spaces.doc(spaceId);
+      const space = plain(await reference.get());
+      if (!space) return null;
+      if (!space.deletedAt) return space;
+      if (space.parentId !== null) {
+        const parent = plain(await spaces.doc(space.parentId).get());
+        if (!parent || parent.deletedAt) throw conflictError("必須先還原父工作區，才能還原此子工作區。");
+      }
+      const now = serverTimestamp();
+      await reference.update({ deletedAt: null, deletedBy: null, updatedAt: now, updatedBy: actor.id });
+      return plain(await reference.get());
+    },
+
+    async addMember(spaceId, user, actor) {
+      const reference = spaces.doc(spaceId);
+      const space = plain(await reference.get());
+      if (!space) return null;
+      if (space.deletedAt) throw conflictError("已刪除的工作區不可新增成員。");
+      if (space.accessMode === "inherited") throw conflictError("繼承父層成員的子工作區不接受直接加入。");
+      if (!user?.active || !space.allowedRoles.includes(user.role)) {
+        const error = new Error("使用者群組不符合此工作區的加入資格。");
+        error.statusCode = 403;
+        throw error;
+      }
+      const memberReference = reference.collection("members").doc(user.id);
+      const existing = plain(await memberReference.get());
+      if (existing) return existing;
+      if (space.archived) {
+        const error = new Error("封存的工作區不可新增成員。");
+        error.statusCode = 409;
+        throw error;
+      }
+      const membership = { createdAt: serverTimestamp(), createdBy: actor.id, spaceId, userId: user.id };
+      await memberReference.set(membership);
       return { ...membership, createdAt: iso(membership.createdAt) };
     },
 
@@ -141,6 +251,38 @@ export function createFirestoreSpaceStore(app) {
       if (!(await reference.get()).exists) return null;
       const snapshot = await reference.collection("members").get();
       return snapshot.docs.map(plain);
+    },
+
+    async removeIneligibleMembers(spaceId, users) {
+      const space = plain(await spaces.doc(spaceId).get());
+      if (!space) return null;
+      const usersById = new Map(users.map((user) => [user.id, user]));
+      const snapshot = await spaces.doc(spaceId).collection("members").get();
+      const invalid = snapshot.docs.filter((document) => {
+        const user = usersById.get(document.id);
+        return space.accessMode === "inherited" || !user || !space.allowedRoles.includes(user.role);
+      });
+      for (let offset = 0; offset < invalid.length; offset += 500) {
+        const batch = firestore.batch();
+        for (const document of invalid.slice(offset, offset + 500)) batch.delete(document.ref);
+        await batch.commit();
+      }
+      return invalid.map((document) => document.id);
+    },
+
+    async removeIneligibleMembershipsForUser(user) {
+      const memberships = await firestore.collectionGroup("members").where("userId", "==", user.id).get();
+      const invalid = [];
+      for (const membership of memberships.docs) {
+        const space = plain(await membership.ref.parent.parent.get());
+        if (!space || space.accessMode === "inherited" || !space.allowedRoles.includes(user.role)) invalid.push(membership);
+      }
+      for (let offset = 0; offset < invalid.length; offset += 500) {
+        const batch = firestore.batch();
+        for (const document of invalid.slice(offset, offset + 500)) batch.delete(document.ref);
+        await batch.commit();
+      }
+      return invalid.map((document) => document.ref.parent.parent.id);
     },
   });
 }

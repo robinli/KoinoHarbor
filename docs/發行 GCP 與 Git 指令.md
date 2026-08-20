@@ -37,11 +37,9 @@ git pull origin main
 # 在 codex-local 分支上，將 main 分支的內容合併進來
 git checkout codex-local
 git merge main
-git push
 
 
 # 將合併後的 codex-local 推送至遠端
-git push origin codex-local
-
+git push
 
 

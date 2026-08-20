@@ -1116,7 +1116,7 @@ th {
   font-weight: 700;
 }
 
-.edit-dialog-form input,
+.edit-dialog-form input:not([type="checkbox"]),
 .edit-dialog-form select,
 .edit-dialog-form textarea {
   width: 100%;

@@ -17,9 +17,15 @@ test("security rules deny unmatched access and enforce hierarchical Space member
   const storageRules = await readFile("storage.rules", "utf8");
 
   assert.match(firestoreRules, /function canAccessSpace/);
-  assert.match(firestoreRules, /isSpaceMember\(spaceId\)/);
+  assert.match(firestoreRules, /function isDirectSpaceMember/);
+  assert.match(firestoreRules, /allowedRoles\.hasAny/);
+  assert.match(firestoreRules, /allowedRoles\.toSet\(\)\.size\(\)/);
+  assert.match(firestoreRules, /request\.resource\.data\.userId == userId/);
+  assert.doesNotMatch(firestoreRules, /function canAccessSpace[^}]*isAdmin/);
   assert.doesNotMatch(firestoreRules, /isInternalMember/);
   assert.match(firestoreRules, /function inheritsParentAccess/);
+  assert.match(firestoreRules, /function spaceNotDeleted/);
+  assert.match(firestoreRules, /space\.data\.accessMode == 'restricted'/);
   assert.match(firestoreRules, /space\.data\.accessMode == 'inherited'/);
   assert.match(firestoreRules, /function validSpaceParent/);
   assert.match(firestoreRules, /match \/messageReactions\/\{reactionId\}/);
@@ -29,6 +35,8 @@ test("security rules deny unmatched access and enforce hierarchical Space member
   assert.match(storageRules, /match \/\{allPaths=\*\*\}/);
   assert.match(storageRules, /allow read, write: if false/);
   assert.match(storageRules, /space\.data\.accessMode == 'inherited'/);
+  assert.match(storageRules, /space\.data\.deletedAt == null/);
+  assert.match(storageRules, /allowedRoles\.hasAny/);
 });
 
 test("container definition runs as a non-root user on the Cloud Run port", async () => {
