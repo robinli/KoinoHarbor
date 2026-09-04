@@ -6,6 +6,7 @@ import test from "node:test";
 
 import { createLocalAttachmentStore } from "../src/attachments.js";
 import { createApplicationServer } from "../src/server.js";
+import { createInMemorySettingsStore } from "../src/settings.js";
 
 async function startTestServer(options = {}) {
   const attachmentDirectory = await mkdtemp(path.join(os.tmpdir(), "koino-server-"));
@@ -69,6 +70,82 @@ test("GET /api/health reports service health", async (context) => {
     firebaseConfigured: false,
     status: "ok",
   });
+});
+
+test("GET /api/settings/public uses the site title default independently from APP_NAME", async (context) => {
+  const testServer = await startTestServer();
+  context.after(testServer.close);
+
+  const response = await fetch(`${testServer.baseUrl}/api/settings/public`);
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { siteTitle: "Koino Harbor" });
+});
+
+test("site settings are public, persist through the store, and can only be updated by admins", async (context) => {
+  const settingsStore = createInMemorySettingsStore({ siteTitle: "Initial Harbor" });
+  const testServer = await startTestServer({ settingsStore });
+  context.after(testServer.close);
+
+  const publicResponse = await fetch(`${testServer.baseUrl}/api/settings/public`);
+  assert.equal(publicResponse.status, 200);
+  assert.deepEqual(await publicResponse.json(), { siteTitle: "Initial Harbor" });
+
+  const unauthenticatedResponse = await fetch(`${testServer.baseUrl}/api/admin/settings`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ siteTitle: "Not allowed" }),
+  });
+  assert.equal(unauthenticatedResponse.status, 401);
+
+  const memberLogin = await login(testServer.baseUrl, "member@example.test", "MemberPassword!");
+  const memberResponse = await fetch(`${testServer.baseUrl}/api/admin/settings`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Cookie: memberLogin.cookie,
+    },
+    body: JSON.stringify({ siteTitle: "Still not allowed" }),
+  });
+  assert.equal(memberResponse.status, 403);
+
+  const adminLogin = await login(testServer.baseUrl, "admin@example.test", "CorrectPassword!");
+  const adminResponse = await fetch(`${testServer.baseUrl}/api/admin/settings`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Cookie: adminLogin.cookie,
+    },
+    body: JSON.stringify({ siteTitle: "  <b>New Harbor</b>  " }),
+  });
+  assert.equal(adminResponse.status, 200);
+  assert.deepEqual(await adminResponse.json(), { siteTitle: "<b>New Harbor</b>" });
+  assert.deepEqual(await settingsStore.getPublicSettings(), { siteTitle: "<b>New Harbor</b>" });
+});
+
+test("admin site settings reject invalid payloads", async (context) => {
+  const testServer = await startTestServer();
+  context.after(testServer.close);
+  const adminLogin = await login(testServer.baseUrl, "admin@example.test", "CorrectPassword!");
+
+  for (const body of [
+    {},
+    [],
+    { siteTitle: 123 },
+    { siteTitle: "" },
+    { siteTitle: "   " },
+    { siteTitle: "a".repeat(81) },
+    { extra: true, siteTitle: "Harbor" },
+  ]) {
+    const response = await fetch(`${testServer.baseUrl}/api/admin/settings`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: adminLogin.cookie,
+      },
+      body: JSON.stringify(body),
+    });
+    assert.equal(response.status, 400, JSON.stringify(body));
+  }
 });
 
 test("login creates a session that can be restored and cleared", async (context) => {

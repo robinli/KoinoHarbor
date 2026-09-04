@@ -11,9 +11,15 @@ import { createFirebaseAuth, getFirebaseApp } from "./firebase-auth.js";
 import {
   createFirebaseAttachmentStore,
   createFirestoreDiscussionStore,
+  createFirestoreSettingsStore,
   createFirestoreSpaceStore,
 } from "./firebase-stores.js";
 import { createInMemorySpaceStore } from "./spaces.js";
+import {
+  createInMemorySettingsStore,
+  createLocalSettingsStore,
+  DEFAULT_SITE_TITLE,
+} from "./settings.js";
 import {
   clearSessionCookie,
   createDevelopmentAuth,
@@ -173,6 +179,11 @@ export function createApplicationServer(options = {}) {
   const spaceStore = options.spaceStore ?? (firebaseApp ? createFirestoreSpaceStore(firebaseApp) : createInMemorySpaceStore());
   const discussionStore = options.discussionStore ?? (firebaseApp ? createFirestoreDiscussionStore(firebaseApp) : createInMemoryDiscussionStore());
   const attachmentStore = options.attachmentStore ?? (firebaseApp ? createFirebaseAttachmentStore(firebaseApp) : createLocalAttachmentStore());
+  const settingsStore = options.settingsStore ?? (firebaseApp
+    ? createFirestoreSettingsStore(firebaseApp, { siteTitle: DEFAULT_SITE_TITLE })
+    : config.environment === "test"
+      ? createInMemorySettingsStore({ siteTitle: DEFAULT_SITE_TITLE })
+      : createLocalSettingsStore({ siteTitle: DEFAULT_SITE_TITLE }));
 
   if (config.seedDevelopmentData && authService.provider === "development") {
     const developmentUsers = authService.listUsers();
@@ -358,6 +369,7 @@ export function createApplicationServer(options = {}) {
       const publicApiPaths = new Set([
         "/api/config",
         "/api/health",
+        "/api/settings/public",
         "/api/auth/firebase-session",
         "/api/auth/login",
       ]);
@@ -376,6 +388,11 @@ export function createApplicationServer(options = {}) {
           firebaseConfigured: Boolean(config.firebaseProjectId),
           status: "ok",
         });
+        return;
+      }
+
+      if (request.method === "GET" && requestUrl.pathname === "/api/settings/public") {
+        sendJson(response, 200, await settingsStore.getPublicSettings());
         return;
       }
 
@@ -447,6 +464,27 @@ export function createApplicationServer(options = {}) {
             storageBucket: config.firebaseStorageBucket,
           } : null,
         });
+        return;
+      }
+
+      if (request.method === "PATCH" && requestUrl.pathname === "/api/admin/settings") {
+        const currentUser = requireUser(request, response, authService, "admin");
+
+        if (!currentUser) {
+          return;
+        }
+
+        const body = await readJsonBody(request);
+        if (!body || Array.isArray(body) || typeof body !== "object"
+          || Object.keys(body).length !== 1 || !Object.hasOwn(body, "siteTitle")) {
+          sendJson(response, 400, {
+            error: "invalid_settings_update",
+            message: "只能修改網站標題。",
+          });
+          return;
+        }
+
+        sendJson(response, 200, await settingsStore.updateSettings(body, currentUser));
         return;
       }
 

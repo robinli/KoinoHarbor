@@ -1765,11 +1765,22 @@ textarea.form-control {
   border-top-color: var(--kh-line);
 }
 
+.site-settings-admin,
 .user-admin,
 .status-admin,
 .admin-space-link {
   margin-top: 18px;
   padding: 22px;
+}
+
+.site-settings-form {
+  max-width: 720px;
+}
+
+@media (max-width: 720px) {
+  .site-settings-form {
+    grid-template-columns: 1fr;
+  }
 }
 
 .table {

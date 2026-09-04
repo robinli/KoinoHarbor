@@ -14,10 +14,10 @@
   </head>
   <body>
     <main>
-      <section class="hero" aria-label="Koino Harbor">
+      <section class="hero" aria-label="Koino Harbor" data-site-title-label>
         <section class="auth-card" id="auth-card" aria-labelledby="auth-title">
           <div id="signed-out-view">
-            <div class="login-brand"><span class="brand-mark" aria-hidden="true">⚓</span><strong>Koino Harbor</strong></div>
+            <div class="login-brand"><span class="brand-mark" aria-hidden="true">⚓</span><strong data-site-title>Koino Harbor</strong></div>
             <h1 id="auth-title">登入</h1>
             <form id="login-form">
               <label>
@@ -48,7 +48,7 @@
           <aside class="portal-sidebar" aria-label="主要導覽選單">
             <div class="sidebar-brand">
               <span class="sidebar-brand-mark" aria-hidden="true">⚓</span>
-              <strong>Koino Harbor</strong>
+              <strong data-site-title>Koino Harbor</strong>
               <button id="portal-admin-nav" type="button" data-portal-target="admin" aria-label="前往後台管理" title="後台管理" hidden><i class="bi bi-gear-fill" aria-hidden="true"></i></button>
             </div>
             <button class="portal-user" id="portal-profile-button" type="button" aria-haspopup="dialog">
@@ -154,6 +154,14 @@
               <div class="section-heading compact-heading">
                 <h2>後台管理</h2>
               </div>
+              <section class="site-settings-admin" id="site-settings-admin" aria-labelledby="site-settings-title" hidden>
+                <div class="section-heading compact-heading"><h3 id="site-settings-title">網站設定</h3></div>
+                <form class="site-settings-form" id="site-settings-form">
+                  <label>網站標題<input name="siteTitle" required maxlength="80" autocomplete="off"></label>
+                  <button type="submit" disabled>儲存</button>
+                </form>
+                <p class="form-message" id="site-settings-message" role="status"></p>
+              </section>
               <section class="user-admin" id="user-admin" aria-labelledby="user-admin-title" hidden>
                 <div class="section-heading compact-heading"><h3 id="user-admin-title">使用者與群組</h3></div>
                 <form class="user-create-form" id="user-create-form">
