@@ -58,6 +58,11 @@ test("portal shell exposes the ordered account, Space, bookmark and admin entry 
   assert.doesNotMatch(html, />[^<]*\bSpace\b[^<]*</);
   assert.match(html, /後台管理[\s\S]*使用者與群組[\s\S]*新增使用者/);
   assert.match(html, /id="user-create-form"/);
+  assert.match(html, /id="site-settings-admin"/);
+  assert.match(html, /id="site-settings-form"/);
+  assert.match(html, /name="siteTitle"/);
+  assert.match(html, /maxlength="80"/);
+  assert.equal((html.match(/data-site-title/g) ?? []).length >= 2, true);
   assert.match(html, /id="forgot-password-form"/);
   assert.match(html, /忘記密碼？/);
   assert.doesNotMatch(html, /id="public-intro"|class="status-card"|class="milestones"|<footer>/);
@@ -124,6 +129,12 @@ test("portal client aggregates accessible threads and disables creation without 
   assert.match(script, /password: formData\.get\("password"\)/);
   assert.match(script, /\.\.\.\(password\.value \? \{ password: password\.value \} : \{\}\)/);
   assert.match(script, /accounts:sendOobCode/);
+  assert.match(script, /fetch\("\/api\/settings\/public"/);
+  assert.match(script, /fetch\("\/api\/admin\/settings"/);
+  assert.match(script, /document\.title = siteTitle/);
+  assert.match(script, /element\.textContent = siteTitle/);
+  assert.doesNotMatch(script, /innerHTML = siteTitle/);
+  assert.match(script, /siteSettingsAdmin\.hidden = user\.role !== "admin"/);
   assert.match(script, /requestType: "PASSWORD_RESET"/);
   assert.match(script, /method: "DELETE"/);
   assert.match(script, /className = "delete-status-button"/);

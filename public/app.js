@@ -5,6 +5,9 @@ const forgotPasswordForm = document.querySelector("#forgot-password-form");
 const forgotPasswordMessage = document.querySelector("#forgot-password-message");
 const cancelForgotPassword = document.querySelector("#cancel-forgot-password");
 const signedOutView = document.querySelector("#signed-out-view");
+const siteSettingsAdmin = document.querySelector("#site-settings-admin");
+const siteSettingsForm = document.querySelector("#site-settings-form");
+const siteSettingsMessage = document.querySelector("#site-settings-message");
 const userAdmin = document.querySelector("#user-admin");
 const userCreateForm = document.querySelector("#user-create-form");
 const userTableBody = document.querySelector("#user-table-body");
@@ -59,6 +62,7 @@ const spaceAccessModeField = document.querySelector("#space-access-mode-field");
 const spaceRoleFieldset = document.querySelector("#space-role-fieldset");
 const spaceInheritedNote = document.querySelector("#space-inherited-note");
 const spaceArchivedField = document.querySelector("#space-archived-field");
+const DEFAULT_SITE_TITLE = "Koino Harbor";
 let availableUsers = [];
 let availableSpaces = [];
 let managedSpaces = [];
@@ -67,6 +71,7 @@ let managedSpaceState = "active";
 let availableStatuses = [];
 let signedInUser = null;
 let runtimeConfig = null;
+let savedSiteTitle = DEFAULT_SITE_TITLE;
 let selectedSidebarSpaceId = null;
 let selectedThreadSpaceId = null;
 let threadSourceUrl = null;
@@ -85,6 +90,32 @@ let firebaseRealtimeContext = null;
 let reactionListenerUnsubscribers = [];
 let reactionRealtimeGeneration = 0;
 const realtimeReactionDocuments = new Map();
+
+function syncSiteSettingsSubmitState() {
+  const input = siteSettingsForm.elements.siteTitle;
+  const submitButton = siteSettingsForm.querySelector('button[type="submit"]');
+  submitButton.disabled = !input.validity.valid || input.value.trim() === savedSiteTitle;
+}
+
+function applySiteTitle(value) {
+  const siteTitle = typeof value === "string" && value.trim() ? value.trim() : DEFAULT_SITE_TITLE;
+  savedSiteTitle = siteTitle;
+  document.title = siteTitle;
+  for (const element of document.querySelectorAll("[data-site-title]")) element.textContent = siteTitle;
+  for (const element of document.querySelectorAll("[data-site-title-label]")) element.setAttribute("aria-label", siteTitle);
+  siteSettingsForm.elements.siteTitle.value = siteTitle;
+  syncSiteSettingsSubmitState();
+}
+
+async function loadPublicSettings(fallbackSiteTitle = DEFAULT_SITE_TITLE) {
+  try {
+    const response = await fetch("/api/settings/public", { headers: { Accept: "application/json" } });
+    const payload = await readJsonResponse(response);
+    applySiteTitle(payload.siteTitle);
+  } catch {
+    applySiteTitle(fallbackSiteTitle);
+  }
+}
 
 function setSystemMessage(messageElement, message, type = "success") {
   const existingTimer = messageTimers.get(messageElement);
@@ -561,6 +592,33 @@ async function loadUsers() {
     setSystemMessage(userAdminMessage, error.message, "error");
   }
 }
+
+siteSettingsForm.addEventListener("input", syncSiteSettingsSubmitState);
+
+siteSettingsForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  siteSettingsMessage.textContent = "";
+  const submitButton = siteSettingsForm.querySelector('button[type="submit"]');
+  submitButton.disabled = true;
+
+  try {
+    const response = await fetch("/api/admin/settings", {
+      method: "PATCH",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ siteTitle: siteSettingsForm.elements.siteTitle.value }),
+    });
+    const payload = await readJsonResponse(response);
+    applySiteTitle(payload.siteTitle);
+    setSystemMessage(siteSettingsMessage, "網站標題已更新。");
+  } catch (error) {
+    setSystemMessage(siteSettingsMessage, error.message, "error");
+  } finally {
+    syncSiteSettingsSubmitState();
+  }
+});
 
 userCreateForm.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -2179,6 +2237,7 @@ function showUser(user) {
   portalShell.hidden = false;
   document.body.classList.add("portal-active");
   portalAdminNav.hidden = user.role !== "admin";
+  siteSettingsAdmin.hidden = user.role !== "admin";
   userAdmin.hidden = user.role !== "admin";
   createRootSpaceButton.hidden = user.role !== "admin";
   statusForm.hidden = user.role !== "admin";
@@ -2206,6 +2265,7 @@ function showLogin() {
   authCard.hidden = false;
   portalShell.hidden = true;
   document.body.classList.remove("portal-active");
+  siteSettingsAdmin.hidden = true;
   userAdmin.hidden = true;
   signedInUser = null;
   for (const dialog of document.querySelectorAll("dialog[open]")) dialog.close();
@@ -2224,6 +2284,7 @@ async function readJsonResponse(response) {
 async function loadRuntimeConfig() {
   const response = await fetch("/api/config", { headers: { Accept: "application/json" } });
   runtimeConfig = await readJsonResponse(response);
+  await loadPublicSettings(runtimeConfig.appName);
   if (runtimeConfig.authProvider !== "firebase") {
     loginForm.elements.email.value = "admin@koino.local";
     loginForm.elements.password.value = "PocAdmin123!";

@@ -1029,6 +1029,7 @@ th {
   font-size: 1.1rem;
 }
 
+.admin-panel > .site-settings-admin,
 .admin-panel > .user-admin,
 .status-admin {
   margin-top: 18px;
@@ -1036,6 +1037,18 @@ th {
   border: 1px solid var(--line);
   border-radius: 12px;
   background: white;
+}
+
+.site-settings-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+  max-width: 720px;
+}
+
+.site-settings-form label {
+  margin: 0;
 }
 
 .admin-space-link {

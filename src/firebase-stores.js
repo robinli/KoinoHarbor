@@ -3,6 +3,8 @@ import { createHash } from "node:crypto";
 import { getFirestore } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
 
+import { DEFAULT_SITE_TITLE, normalizeSiteTitle } from "./settings.js";
+
 function iso(value) {
   return value?.toDate?.().toISOString?.() ?? value ?? null;
 }
@@ -58,6 +60,36 @@ function allowedRoles(value, mode) {
   if (value.some((role) => !validRoles.has(role))) throw validationError("允許群組只能包含 admin、member 或 guest。");
   if (new Set(value).size !== value.length) throw validationError("允許群組不可重複。");
   return [...value];
+}
+
+export function createFirestoreSettingsStore(app, options = {}) {
+  const firestore = options.firestore ?? getFirestore(app);
+  const settingsReference = firestore.collection("settings").doc("site");
+  const defaultSiteTitle = normalizeSiteTitle(options.siteTitle ?? DEFAULT_SITE_TITLE);
+
+  return Object.freeze({
+    async getPublicSettings() {
+      const snapshot = await settingsReference.get();
+      if (!snapshot.exists) return { siteTitle: defaultSiteTitle };
+
+      try {
+        return { siteTitle: normalizeSiteTitle(snapshot.data()?.siteTitle) };
+      } catch {
+        return { siteTitle: defaultSiteTitle };
+      }
+    },
+
+    async updateSettings(input, actor) {
+      const siteTitle = normalizeSiteTitle(input?.siteTitle);
+      const now = serverTimestamp();
+      await settingsReference.set({
+        siteTitle,
+        updatedAt: now,
+        updatedBy: actor.id,
+      }, { merge: true });
+      return { siteTitle };
+    },
+  });
 }
 
 export function createFirestoreSpaceStore(app) {
