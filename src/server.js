@@ -1125,7 +1125,7 @@ export function createApplicationServer(options = {}) {
         const currentUser = requireUser(request, response, authService);
         if (!currentUser) return;
         const thread = await discussionStore.getThread(decodeURIComponent(threadRouteMatch[1]));
-        if (!thread) {
+        if (!thread || thread.deleted) {
           sendJson(response, 404, { error: "thread_not_found", message: "找不到指定的討論串。" });
           return;
         }
@@ -1476,6 +1476,14 @@ export function createApplicationServer(options = {}) {
       }
 
       if (request.method === "GET" && await serveStaticFile(response, publicDirectory, requestUrl.pathname)) {
+        return;
+      }
+
+      if (
+        ["GET", "HEAD"].includes(request.method)
+        && /^\/threads\/[^/]+\/?$/.test(requestUrl.pathname)
+        && await serveStaticFile(response, publicDirectory, "/index.html")
+      ) {
         return;
       }
 

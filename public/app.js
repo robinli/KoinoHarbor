@@ -38,7 +38,7 @@ function notePendingTranslations(records) {
       await loadSpaces();
       await loadStatuses();
       await loadDashboard();
-      await loadThreads();
+      await reloadCurrentDiscussion();
     } catch (error) {
       setSystemMessage(discussionMessage, error.message, "error");
     }
@@ -90,6 +90,9 @@ const spacesTitle = document.querySelector("#spaces-title");
 const createRootSpaceButton = document.querySelector("#create-root-space-button");
 const spaceStateFilter = document.querySelector("#space-state-filter");
 const discussionTitle = document.querySelector("#discussion-title");
+const threadDetailBack = document.querySelector("#thread-detail-back");
+const discussionCreateThread = document.querySelector("#discussion-create-thread");
+const discussionToolbar = discussionPanel.querySelector(".discussion-toolbar");
 const dashboardThreadList = document.querySelector("#dashboard-thread-list");
 const dashboardSpaceFilter = document.querySelector("#dashboard-space-filter");
 const statusSummary = document.querySelector("#status-summary");
@@ -121,6 +124,10 @@ let runtimeConfig = null;
 let savedSiteTitle = DEFAULT_SITE_TITLE;
 let selectedSidebarSpaceId = null;
 let selectedThreadSpaceId = null;
+let activeThreadId = null;
+let activeThreadSpaceId = null;
+let activeThreadTitle = null;
+let routeLoadGeneration = 0;
 let threadSourceUrl = null;
 let threadEmptyMessage = "目前沒有符合條件的討論串。";
 let unreadBySpace = {};
@@ -148,6 +155,7 @@ function applySiteTitle(value) {
   const siteTitle = typeof value === "string" && value.trim() ? value.trim() : DEFAULT_SITE_TITLE;
   savedSiteTitle = siteTitle;
   document.title = siteTitle;
+  if (activeThreadTitle) document.title = `${activeThreadTitle} · ${siteTitle}`;
   for (const element of document.querySelectorAll("[data-site-title]")) element.textContent = siteTitle;
   for (const element of document.querySelectorAll("[data-site-title-label]")) element.setAttribute("aria-label", siteTitle);
   siteSettingsForm.elements.siteTitle.value = siteTitle;
@@ -292,6 +300,10 @@ function resetPortalData() {
   threadForm.hidden = true;
   selectedSidebarSpaceId = null;
   selectedThreadSpaceId = null;
+  activeThreadId = null;
+  activeThreadSpaceId = null;
+  activeThreadTitle = null;
+  routeLoadGeneration += 1;
   threadSourceUrl = null;
   threadEmptyMessage = "目前沒有符合條件的討論串。";
   unreadBySpace = {};
@@ -325,6 +337,101 @@ function updateWorkspaceThreadNavigation(spaceId = null, active = true) {
 
 function updateDiscussionHeading(space = null) {
   discussionTitle.textContent = space?.name ?? "全部工作區";
+}
+
+function threadPath(threadId) {
+  return `/threads/${encodeURIComponent(threadId)}`;
+}
+
+function threadIdFromPath(pathname = window.location.pathname) {
+  const match = pathname.match(/^\/threads\/([^/]+)\/?$/);
+  if (!match) return null;
+  try {
+    return decodeURIComponent(match[1]) || null;
+  } catch {
+    return null;
+  }
+}
+
+function currentRootHistoryState() {
+  const view = document.querySelector("[data-portal-view]:not([hidden])")?.dataset.portalView ?? "discussions";
+  return {
+    emptyMessage: view === "discussions" ? threadEmptyMessage : null,
+    heading: view === "discussions" ? discussionTitle.textContent : null,
+    sourceUrl: view === "discussions" ? threadSourceUrl : null,
+    spaceId: view === "discussions" ? selectedThreadSpaceId : null,
+    statusId: view === "discussions" ? threadStatusFilter.value : null,
+    view,
+  };
+}
+
+function rememberCurrentRootState() {
+  if (window.location.pathname === "/") {
+    window.history.replaceState(currentRootHistoryState(), "", "/");
+  }
+}
+
+function setRootHistory(state) {
+  const method = window.location.pathname === "/" ? "replaceState" : "pushState";
+  window.history[method](state, "", "/");
+}
+
+function resetThreadDetailChrome() {
+  activeThreadId = null;
+  activeThreadSpaceId = null;
+  activeThreadTitle = null;
+  threadDetailBack.hidden = true;
+  discussionToolbar.hidden = false;
+  discussionCreateThread.hidden = false;
+  document.title = savedSiteTitle;
+}
+
+function prepareThreadDetailChrome(threadId) {
+  activeThreadId = threadId;
+  activeThreadSpaceId = null;
+  activeThreadTitle = null;
+  threadForm.hidden = true;
+  threadDetailBack.hidden = false;
+  threadDetailBack.textContent = t("返回討論列表");
+  discussionToolbar.hidden = true;
+  discussionCreateThread.hidden = true;
+  discussionTitle.textContent = t("討論主題");
+  document.title = savedSiteTitle;
+}
+
+function applyThreadDetailChrome(thread) {
+  const space = availableSpaces.find((item) => item.id === thread.spaceId);
+  activeThreadSpaceId = thread.spaceId;
+  activeThreadTitle = thread.title;
+  selectedThreadSpaceId = thread.spaceId;
+  threadSpaceFilter.value = [...threadSpaceFilter.options].some((option) => option.value === thread.spaceId) ? thread.spaceId : "";
+  updateWorkspaceThreadNavigation(thread.spaceId);
+  threadDetailBack.textContent = space
+    ? t("返回「{name}」討論", { name: space.name })
+    : t("返回討論列表");
+  document.title = `${thread.title} · ${savedSiteTitle}`;
+}
+
+function createThreadPermalink(thread) {
+  const link = document.createElement("a");
+  link.className = "thread-permalink";
+  link.dataset.userContent = "";
+  link.href = threadPath(thread.id);
+  link.textContent = thread.title;
+  link.addEventListener("click", (event) => {
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    void showThread(thread.id);
+  });
+  return link;
+}
+
+async function copyThreadPermalink(threadId) {
+  if (!navigator.clipboard?.writeText) {
+    throw new Error(t("無法複製討論連結，請從瀏覽器網址列複製。"));
+  }
+  await navigator.clipboard.writeText(new URL(threadPath(threadId), window.location.origin).href);
+  setSystemMessage(discussionMessage, t("討論連結已複製。"));
 }
 
 function formatRelativeTime(value) {
@@ -448,7 +555,10 @@ function showUnreadMessageMarker(messageType, messageId) {
   }
 }
 
-async function showWorkspaceThreads(spaceId = null) {
+async function showWorkspaceThreads(spaceId = null, { updateHistory = true } = {}) {
+  routeLoadGeneration += 1;
+  if (updateHistory) setRootHistory({ spaceId, view: "discussions" });
+  resetThreadDetailChrome();
   const selectedSpace = availableSpaces.find((space) => !space.archived && space.id === spaceId) ?? null;
   selectedThreadSpaceId = selectedSpace?.id ?? null;
   showPortalView("discussions");
@@ -507,8 +617,7 @@ function createThreadSummary(thread) {
   meta.dataset.userContent = "";
   meta.textContent = `${space?.name ?? t("工作區")} · ${status?.name ?? t("無狀態")}`;
   const title = document.createElement("h4");
-  title.dataset.userContent = "";
-  title.textContent = thread.title;
+  title.append(createThreadPermalink(thread));
   appendTranslationBadge(title, thread);
   const content = document.createElement("p");
   content.className = "thread-summary-content";
@@ -517,9 +626,7 @@ function createThreadSummary(thread) {
   const openButton = document.createElement("button");
   openButton.type = "button";
   openButton.textContent = "開啟討論";
-  openButton.addEventListener("click", async () => {
-    await showWorkspaceThreads(space?.id ?? null);
-  });
+  openButton.addEventListener("click", () => showThread(thread.id));
   card.append(meta, title, content, openButton);
   return card;
 }
@@ -1096,7 +1203,7 @@ async function loadSpaces() {
       await loadAdminSpaces();
       renderSpaceOverview();
     }
-    if (!discussionPanel.hidden) {
+    if (!discussionPanel.hidden && !activeThreadId) {
       const selectedSpace = activeSpaces.find((space) => space.id === selectedThreadSpaceId) ?? null;
       updateDiscussionHeading(selectedSpace);
       updateWorkspaceThreadNavigation(selectedThreadSpaceId);
@@ -2048,7 +2155,7 @@ function renderReplyTree(thread, replies, attachments, container, onRefresh) {
   container.hidden = replies.length === 0;
 }
 
-function createThreadCard(thread) {
+function createThreadCard(thread, initialDetails = null) {
   const card = document.createElement("article");
   card.className = `thread-card${thread.pinned ? " is-pinned" : ""}${thread.archived ? " is-archived" : ""}`;
   card.dataset.messageKey = unreadMessageKey("thread", thread.id);
@@ -2061,8 +2168,7 @@ function createThreadCard(thread) {
   const titleLine = document.createElement("div");
   titleLine.className = "thread-title-line";
   const title = document.createElement("h3");
-  title.dataset.userContent = "";
-  title.textContent = thread.title;
+  title.append(createThreadPermalink(thread));
   appendTranslationBadge(title, thread);
   const threadIsUnread = unreadMessageKeys.has(unreadMessageKey("thread", thread.id));
   titleLine.append(title, createAuthorMetadata(thread));
@@ -2134,6 +2240,7 @@ function createThreadCard(thread) {
   let detailsReady;
   if (signedInUser.role === "admin" || signedInUser.id === thread.authorId) addMenuItem("編輯", "bi-pencil", () => openThreadEditor());
   addMenuItem("設定未讀取", "bi-envelope", () => setMessageUnread("thread", thread.id, thread.id));
+  addMenuItem("複製連結", "bi-link-45deg", () => copyThreadPermalink(thread.id));
   const toggleBookmark = async () => {
     const response = await fetch(`/api/threads/${encodeURIComponent(thread.id)}/bookmark`, {
       method: "PUT",
@@ -2142,7 +2249,7 @@ function createThreadCard(thread) {
     });
     await readJsonResponse(response);
     setSystemMessage(discussionMessage, thread.bookmarked ? "已移除個人書籤。" : "已加入個人書籤。");
-    await loadThreads();
+    await reloadCurrentDiscussion();
   };
   if (thread.bookmarked) {
     addMenuItem("移除書籤", "bi-bookmark-fill", toggleBookmark);
@@ -2160,7 +2267,7 @@ function createThreadCard(thread) {
         body: JSON.stringify({ [field]: !thread[field] }),
       });
       await readJsonResponse(response);
-      await loadThreads();
+      await reloadCurrentDiscussion();
     });
   }
   actionMenu.append(actionMenuToggle, actionMenuList);
@@ -2190,12 +2297,12 @@ function createThreadCard(thread) {
   card.append(display);
   observeUnreadMessage(card, "thread", thread.id, thread.id);
 
-  async function refreshDetails() {
+  async function refreshDetails(prefetchedDetails = null) {
     const [detailsResponse, attachmentsResponse] = await Promise.all([
-      fetch(`/api/threads/${encodeURIComponent(thread.id)}`),
+      prefetchedDetails ?? fetch(`/api/threads/${encodeURIComponent(thread.id)}`),
       fetch(`/api/threads/${encodeURIComponent(thread.id)}/attachments`),
     ]);
-    const detailsPayload = await readJsonResponse(detailsResponse);
+    const detailsPayload = prefetchedDetails ?? await readJsonResponse(detailsResponse);
     const attachmentsPayload = await readJsonResponse(attachmentsResponse);
     threadAttachments = attachmentsPayload.attachments.filter((attachment) => !attachment.replyId);
     renderAttachmentList(attachmentList, threadAttachments);
@@ -2260,7 +2367,8 @@ function createThreadCard(thread) {
         });
         await readJsonResponse(response);
         await loadDashboard();
-        await loadThreads();
+        if (activeThreadId === thread.id) await showWorkspaceThreads(thread.spaceId);
+        else await loadThreads();
         setSystemMessage(discussionMessage, "討論已刪除。資料仍會保留。");
       } catch (error) {
         setSystemMessage(discussionMessage, error.message, "error");
@@ -2283,7 +2391,7 @@ function createThreadCard(thread) {
         await deleteAttachments(pendingRemovalIds);
         await uploadAttachments(thread.id, fileControl.picker.files);
         await loadDashboard();
-        await loadThreads();
+        await reloadCurrentDiscussion();
         setSystemMessage(discussionMessage, "討論資料已更新。");
       } catch (error) {
         setSystemMessage(discussionMessage, error.message, "error");
@@ -2294,7 +2402,7 @@ function createThreadCard(thread) {
     titleInput.focus();
   }
 
-  detailsReady = refreshDetails();
+  detailsReady = refreshDetails(initialDetails);
   detailsReady.catch((error) => { setSystemMessage(discussionMessage, error.message, "error"); });
   return card;
 }
@@ -2302,6 +2410,54 @@ function createThreadCard(thread) {
 function setThreadSource(sourceUrl = null, emptyMessage = "目前沒有符合條件的討論串。") {
   threadSourceUrl = sourceUrl;
   threadEmptyMessage = emptyMessage;
+}
+
+async function showThread(threadId, { updateHistory = true } = {}) {
+  const permalink = threadPath(threadId);
+  if (updateHistory && window.location.pathname !== permalink) {
+    rememberCurrentRootState();
+    window.history.pushState({ threadId, view: "thread" }, "", permalink);
+  }
+
+  const generation = ++routeLoadGeneration;
+  prepareThreadDetailChrome(threadId);
+  showPortalView("discussions");
+  updateWorkspaceThreadNavigation(null, false);
+  threadSpaceFilter.value = "";
+  setThreadSource();
+  discussionMessage.textContent = "";
+  stopReactionRealtime();
+  const loading = document.createElement("p");
+  loading.className = "empty-state";
+  loading.textContent = t("載入中…");
+  threadList.replaceChildren(loading);
+
+  try {
+    const response = await fetch(`/api/threads/${encodeURIComponent(threadId)}`, { headers: { Accept: "application/json" } });
+    const payload = await readJsonResponse(response);
+    if (generation !== routeLoadGeneration) return;
+    notePendingTranslations([payload.thread, ...payload.replies]);
+    applyThreadDetailChrome(payload.thread);
+    threadList.replaceChildren(createThreadCard(payload.thread, payload));
+    void startReactionRealtime([payload.thread]).catch((error) => {
+      setSystemMessage(discussionMessage, t("Reaction 即時同步無法啟動：{message}", { message: error.message }), "error");
+    });
+  } catch (error) {
+    if (generation !== routeLoadGeneration) return;
+    activeThreadSpaceId = null;
+    activeThreadTitle = null;
+    document.title = savedSiteTitle;
+    threadList.replaceChildren();
+    setSystemMessage(discussionMessage, error.message, "error");
+  }
+}
+
+async function reloadCurrentDiscussion() {
+  if (activeThreadId) {
+    await showThread(activeThreadId, { updateHistory: false });
+    return;
+  }
+  await loadThreads();
 }
 
 async function loadThreads() {
@@ -2335,7 +2491,41 @@ async function loadThreads() {
 async function loadDiscussion() {
   await loadStatuses();
   await loadDashboard();
-  await loadThreads();
+  const routedThreadId = threadIdFromPath();
+  if (routedThreadId) {
+    await showThread(routedThreadId, { updateHistory: false });
+    return;
+  }
+  await restoreRootHistoryState(window.history.state);
+}
+
+async function restoreRootHistoryState(state) {
+  const viewName = state?.view ?? "discussions";
+  if (viewName === "discussions") {
+    if (!state?.sourceUrl) {
+      await showWorkspaceThreads(state?.spaceId ?? null, { updateHistory: false });
+      return;
+    }
+    routeLoadGeneration += 1;
+    resetThreadDetailChrome();
+    selectedThreadSpaceId = null;
+    showPortalView("discussions");
+    threadSpaceFilter.value = "";
+    threadStatusFilter.value = state.statusId ?? "";
+    updateWorkspaceThreadNavigation(null, false);
+    discussionTitle.textContent = state.heading ?? t("搜尋結果");
+    setThreadSource(state.sourceUrl, state.emptyMessage ?? "目前沒有符合條件的討論串。");
+    if (state.sourceUrl === "/api/bookmarks") portalBookmarks.classList.add("is-active");
+    await loadThreads();
+    return;
+  }
+
+  routeLoadGeneration += 1;
+  resetThreadDetailChrome();
+  showPortalView(viewName);
+  if (viewName === "home") await loadDashboard();
+  if (viewName === "joinable") await loadMembershipSpaces();
+  if (viewName === "spaces") await showSpaceOverview();
 }
 
 function showUser(user) {
@@ -2546,7 +2736,7 @@ statusEditForm.addEventListener("submit", async (event) => {
     await readJsonResponse(response);
     statusEditDialog.close();
     await loadStatuses();
-    await loadThreads();
+    await reloadCurrentDiscussion();
     setSystemMessage(discussionMessage, "討論狀態已更新。");
   } catch (error) {
     setSystemMessage(discussionMessage, error.message, "error");
@@ -2591,7 +2781,7 @@ spaceEditForm.addEventListener("submit", async (event) => {
     await loadAdminSpaces();
     await loadSpaces();
     renderSpaceOverview();
-    if (!discussionPanel.hidden) await loadThreads();
+    if (!discussionPanel.hidden) await reloadCurrentDiscussion();
     setSystemMessage(spaceMessage, creating ? "工作區已建立。" : "工作區已更新。");
   } catch (error) {
     setSystemMessage(spaceEditMessage, error.message, "error");
@@ -2721,13 +2911,22 @@ threadSpaceFilter.addEventListener("change", () => showWorkspaceThreads(threadSp
 threadStatusFilter.addEventListener("change", () => loadThreads());
 dashboardSpaceFilter.addEventListener("change", () => loadDashboard());
 portalAllSpaces.addEventListener("click", () => showWorkspaceThreads());
+threadDetailBack.addEventListener("click", () => showWorkspaceThreads(activeThreadSpaceId));
 
 for (const button of document.querySelectorAll("[data-portal-target]")) {
   button.addEventListener("click", async () => {
     const viewName = button.dataset.portalTarget;
     if (viewName === "spaces") {
+      setRootHistory({ view: "spaces" });
+      routeLoadGeneration += 1;
+      resetThreadDetailChrome();
       await showSpaceOverview();
       return;
+    }
+    if (viewName !== "discussions") {
+      setRootHistory({ view: viewName });
+      routeLoadGeneration += 1;
+      resetThreadDetailChrome();
     }
     showPortalView(viewName);
     if (viewName === "joinable") await loadMembershipSpaces();
@@ -2758,6 +2957,8 @@ document.querySelector("[data-cancel-thread-form]").addEventListener("click", ()
 
 searchForm.addEventListener("submit", async (event) => {
   event.preventDefault();
+  routeLoadGeneration += 1;
+  resetThreadDetailChrome();
   const query = new FormData(searchForm).get("query");
   selectedThreadSpaceId = null;
   showPortalView("discussions");
@@ -2765,10 +2966,13 @@ searchForm.addEventListener("submit", async (event) => {
   updateWorkspaceThreadNavigation(null, false);
   discussionTitle.textContent = "搜尋結果";
   setThreadSource(`/api/search?q=${encodeURIComponent(query)}`);
+  setRootHistory(currentRootHistoryState());
   await loadThreads();
 });
 
 async function showBookmarks() {
+  routeLoadGeneration += 1;
+  resetThreadDetailChrome();
   selectedThreadSpaceId = null;
   showPortalView("discussions");
   threadSpaceFilter.value = "";
@@ -2776,10 +2980,20 @@ async function showBookmarks() {
   portalBookmarks.classList.add("is-active");
   discussionTitle.textContent = "我的書籤";
   setThreadSource("/api/bookmarks", "目前沒有已加入書籤的討論串。");
+  setRootHistory(currentRootHistoryState());
   await loadThreads();
 }
 
 portalBookmarks.addEventListener("click", showBookmarks);
+
+window.addEventListener("popstate", (event) => {
+  if (!signedInUser) return;
+  const routedThreadId = threadIdFromPath();
+  const navigation = routedThreadId
+    ? showThread(routedThreadId, { updateHistory: false })
+    : restoreRootHistoryState(event.state);
+  navigation.catch((error) => setSystemMessage(discussionMessage, error.message, "error"));
+});
 
 for (const selector of document.querySelectorAll("[data-locale-select]")) {
   selector.value = getLocale();

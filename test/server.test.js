@@ -1492,6 +1492,54 @@ test("user locale projects content and Cloud Tasks completion is revision-safe",
   assert.equal(chineseThread.replies[0].content, "[zh-TW] Reviewed");
 });
 
+test("single thread API enforces authentication, membership and soft deletion", async (context) => {
+  const testServer = await startTestServer();
+  context.after(testServer.close);
+  const adminLogin = await login(testServer.baseUrl, "admin@example.test", "CorrectPassword!");
+  const guestLogin = await login(testServer.baseUrl, "guest@example.test", "GuestPassword!");
+
+  const spaceResponse = await fetch(`${testServer.baseUrl}/api/spaces`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Cookie: adminLogin.cookie },
+    body: JSON.stringify({ allowedRoles: ["admin", "guest"], name: "Permalink Space" }),
+  });
+  const { space } = await spaceResponse.json();
+  await fetch(`${testServer.baseUrl}/api/spaces/${space.id}/members`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Cookie: adminLogin.cookie },
+    body: JSON.stringify({ userId: adminLogin.payload.user.id }),
+  });
+  const createResponse = await fetch(`${testServer.baseUrl}/api/threads`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Cookie: adminLogin.cookie },
+    body: JSON.stringify({ content: "Stable URL content", spaceId: space.id, title: "Stable URL" }),
+  });
+  const { thread } = await createResponse.json();
+
+  const allowedResponse = await fetch(`${testServer.baseUrl}/api/threads/${thread.id}`, {
+    headers: { Cookie: adminLogin.cookie },
+  });
+  assert.equal(allowedResponse.status, 200);
+  assert.equal((await allowedResponse.json()).thread.id, thread.id);
+  assert.equal((await fetch(`${testServer.baseUrl}/api/threads/${thread.id}`)).status, 401);
+  assert.equal((await fetch(`${testServer.baseUrl}/api/threads/${thread.id}`, {
+    headers: { Cookie: guestLogin.cookie },
+  })).status, 403);
+  assert.equal((await fetch(`${testServer.baseUrl}/api/threads/missing`, {
+    headers: { Cookie: adminLogin.cookie },
+  })).status, 404);
+
+  const deleteResponse = await fetch(`${testServer.baseUrl}/api/threads/${thread.id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", Cookie: adminLogin.cookie },
+    body: JSON.stringify({ deleted: true }),
+  });
+  assert.equal(deleteResponse.status, 200);
+  assert.equal((await fetch(`${testServer.baseUrl}/api/threads/${thread.id}`, {
+    headers: { Cookie: adminLogin.cookie },
+  })).status, 404);
+});
+
 test("GET / serves the application shell", async (context) => {
   const testServer = await startTestServer();
   context.after(testServer.close);
@@ -1506,6 +1554,14 @@ test("GET / serves the application shell", async (context) => {
   assert.match(body, /\/vendor\/bootstrap-icons\.css/);
   assert.match(body, /\/modern\.css/);
   assert.match(body, /\/favicon\.svg/);
+
+  const threadPageResponse = await fetch(`${testServer.baseUrl}/threads/thread-123`);
+  assert.equal(threadPageResponse.status, 200);
+  assert.match(threadPageResponse.headers.get("content-type"), /text\/html/);
+  assert.match(await threadPageResponse.text(), /Koino Harbor/);
+  const threadPageHeadResponse = await fetch(`${testServer.baseUrl}/threads/thread-123`, { method: "HEAD" });
+  assert.equal(threadPageHeadResponse.status, 200);
+  assert.match(threadPageHeadResponse.headers.get("content-type"), /text\/html/);
 
   const bootstrapResponse = await fetch(`${testServer.baseUrl}/vendor/bootstrap.min.css`);
   assert.equal(bootstrapResponse.status, 200);

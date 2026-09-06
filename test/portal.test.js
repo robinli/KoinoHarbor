@@ -20,6 +20,8 @@ test("portal shell exposes the ordered account, Space, bookmark and admin entry 
     'data-portal-view="admin"',
     'id="dashboard-space-filter"',
     'id="thread-form"',
+    'id="thread-detail-back"',
+    'id="discussion-create-thread"',
     'data-open-thread-form',
     'data-cancel-thread-form',
     'id="status-edit-dialog"',
@@ -109,7 +111,7 @@ test("portal client aggregates accessible threads and disables creation without 
   assert.match(script, /t\("排序:\{order\} \{description\}"/);
   assert.match(script, /spaceEditDialog\.showModal\(\)/);
   assert.match(script, /archived: formData\.get\("archived"\) === "true"/);
-  assert.match(script, /async function showWorkspaceThreads\(spaceId = null\)/);
+  assert.match(script, /async function showWorkspaceThreads\(spaceId = null, \{ updateHistory = true \} = \{\}\)/);
   assert.match(script, /threadSpaceFilter\.value = selectedThreadSpaceId \?\? ""/);
   assert.match(script, /button\.dataset\.spaceId = space\.id/);
   assert.match(script, /prefix\.textContent = "#"/);
@@ -131,6 +133,15 @@ test("portal client aggregates accessible threads and disables creation without 
   assert.match(script, /portalAllSpaces\.addEventListener\("click", \(\) => showWorkspaceThreads\(\)\)/);
   assert.match(script, /setThreadSource\("\/api\/bookmarks", "目前沒有已加入書籤的討論串。"\)/);
   assert.match(script, /function setThreadSource\(sourceUrl = null, emptyMessage = "目前沒有符合條件的討論串。"\)/);
+  assert.match(script, /function threadPath\(threadId\)/);
+  assert.match(script, /return `\/threads\/\$\{encodeURIComponent\(threadId\)\}`/);
+  assert.match(script, /async function showThread\(threadId, \{ updateHistory = true \} = \{\}\)/);
+  assert.match(script, /window\.history\.pushState\(\{ threadId, view: "thread" \}/);
+  assert.match(script, /window\.addEventListener\("popstate"/);
+  assert.match(script, /createThreadPermalink\(thread\)/);
+  assert.match(script, /addMenuItem\("複製連結", "bi-link-45deg"/);
+  assert.match(script, /navigator\.clipboard\.writeText/);
+  assert.match(script, /document\.title = `\$\{thread\.title\} · \$\{savedSiteTitle\}`/);
   assert.match(script, /const url = threadSourceUrl \?\? \(selectedSpaceId \? `\/api\/threads\?spaceId=\$\{encodeURIComponent\(selectedSpaceId\)\}` : "\/api\/threads"\)/);
   assert.match(script, /spaceId: formData\.get\("spaceId"\)/);
   assert.match(script, /function resetPortalData\(\)/);

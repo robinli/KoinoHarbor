@@ -911,6 +911,25 @@ textarea.form-control {
   font-size: 1rem;
 }
 
+.thread-permalink {
+  color: inherit;
+  text-decoration: none;
+}
+
+.thread-permalink:hover,
+.thread-permalink:focus-visible {
+  color: var(--kh-purple);
+  text-decoration: underline;
+}
+
+.thread-detail-back.btn {
+  min-height: auto;
+  margin-bottom: 4px;
+  padding: 0;
+  color: var(--kh-purple);
+  background: transparent;
+}
+
 .thread-summary-content {
   max-width: 75ch;
   margin-bottom: 0;
