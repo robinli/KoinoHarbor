@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { completeLocalizedMutation, failLocalizedMutation, prepareLocalizedMutation } from "./localization.js";
 
 function validationError(message) {
   const error = new Error(message);
@@ -34,17 +35,38 @@ export function createInMemoryDiscussionStore() {
     return `${userId}:${messageType}:${messageId}`;
   }
 
+  function completeTranslation(record, revision, values, now) {
+    if (!record) return false;
+    const completed = completeLocalizedMutation(record, revision, values, now);
+    if (!completed.applied) return false;
+    record.translation = completed.translation;
+    record.translations = completed.translations;
+    return true;
+  }
+
+  function failTranslation(record, revision, errorCode, now) {
+    if (!record) return false;
+    const failed = failLocalizedMutation(record, revision, errorCode, now);
+    if (!failed.applied) return false;
+    record.translation = failed.translation;
+    return true;
+  }
+
   return Object.freeze({
     createStatus(input, actor, now = new Date()) {
+      const name = requiredText(input.name, "狀態名稱");
+      const localized = prepareLocalizedMutation(null, { name }, ["name"], input.sourceLocale, now);
       const status = {
         active: input.active ?? true,
         createdAt: now.toISOString(),
         createdBy: actor.id,
         id: randomUUID(),
-        name: requiredText(input.name, "狀態名稱"),
+        name,
         sortOrder: Number.isInteger(input.sortOrder) ? input.sortOrder : statuses.size + 1,
         updatedAt: now.toISOString(),
         updatedBy: actor.id,
+        translation: localized.translation,
+        translations: localized.translations,
       };
       statuses.set(status.id, status);
       return copy(status);
@@ -57,6 +79,11 @@ export function createInMemoryDiscussionStore() {
         .map(copy);
     },
 
+    getStatus(statusId) {
+      const status = statuses.get(statusId);
+      return status ? copy(status) : null;
+    },
+
     updateStatus(statusId, changes, actor, now = new Date()) {
       const status = statuses.get(statusId);
 
@@ -64,8 +91,10 @@ export function createInMemoryDiscussionStore() {
         return null;
       }
 
+      const localizedValues = {};
       if (changes.name !== undefined) {
         status.name = requiredText(changes.name, "狀態名稱");
+        localizedValues.name = status.name;
       }
 
       if (changes.sortOrder !== undefined) {
@@ -86,6 +115,9 @@ export function createInMemoryDiscussionStore() {
 
       status.updatedAt = now.toISOString();
       status.updatedBy = actor.id;
+      const localized = prepareLocalizedMutation(status, localizedValues, ["name"], changes.sourceLocale, now);
+      status.translation = localized.translation;
+      status.translations = localized.translations;
       return copy(status);
     },
 
@@ -117,20 +149,25 @@ export function createInMemoryDiscussionStore() {
         throw validationError("指定的討論狀態不存在或已停用。");
       }
 
+      const content = requiredText(input.content, "討論內容");
+      const title = requiredText(input.title, "討論標題");
+      const localized = prepareLocalizedMutation(null, { content, title }, ["title", "content"], input.sourceLocale, now);
       const thread = {
         archived: false,
         deleted: false,
         authorId: actor.id,
-        content: requiredText(input.content, "討論內容"),
+        content,
         createdAt: now.toISOString(),
         createdBy: actor.id,
         id: randomUUID(),
         pinned: false,
         spaceId: requiredText(input.spaceId, "工作區"),
         statusId,
-        title: requiredText(input.title, "討論標題"),
+        title,
         updatedAt: now.toISOString(),
         updatedBy: actor.id,
+        translation: localized.translation,
+        translations: localized.translations,
       };
       threads.set(thread.id, thread);
       replies.set(thread.id, new Map());
@@ -163,12 +200,15 @@ export function createInMemoryDiscussionStore() {
         throw error;
       }
 
+      const localizedValues = {};
       if (changes.title !== undefined) {
         thread.title = requiredText(changes.title, "討論標題");
+        localizedValues.title = thread.title;
       }
 
       if (changes.content !== undefined) {
         thread.content = requiredText(changes.content, "討論內容");
+        localizedValues.content = thread.content;
       }
 
       if (changes.statusId !== undefined) {
@@ -199,6 +239,9 @@ export function createInMemoryDiscussionStore() {
 
       thread.updatedAt = now.toISOString();
       thread.updatedBy = actor.id;
+      const localized = prepareLocalizedMutation(thread, localizedValues, ["title", "content"], changes.sourceLocale, now);
+      thread.translation = localized.translation;
+      thread.translations = localized.translations;
       return copy(thread);
     },
 
@@ -212,9 +255,11 @@ export function createInMemoryDiscussionStore() {
         throw validationError("指定的父回覆不存在。");
       }
 
+      const content = requiredText(input.content, "回覆內容");
+      const localized = prepareLocalizedMutation(null, { content }, ["content"], input.sourceLocale, now);
       const reply = {
         authorId: actor.id,
-        content: requiredText(input.content, "回覆內容"),
+        content,
         createdAt: now.toISOString(),
         createdBy: actor.id,
         deleted: false,
@@ -223,6 +268,8 @@ export function createInMemoryDiscussionStore() {
         threadId,
         updatedAt: now.toISOString(),
         updatedBy: actor.id,
+        translation: localized.translation,
+        translations: localized.translations,
       };
       replies.get(threadId).set(reply.id, reply);
       threads.get(threadId).updatedAt = now.toISOString();
@@ -253,14 +300,45 @@ export function createInMemoryDiscussionStore() {
         throw error;
       }
       const update = typeof changes === "string" ? { content: changes } : changes;
-      if (update.content !== undefined) reply.content = requiredText(update.content, "回覆內容");
+      const localizedValues = {};
+      if (update.content !== undefined) {
+        reply.content = requiredText(update.content, "回覆內容");
+        localizedValues.content = reply.content;
+      }
       if (update.deleted !== undefined) {
         if (typeof update.deleted !== "boolean") throw validationError("deleted 必須是布林值。");
         reply.deleted = update.deleted;
       }
       reply.updatedAt = now.toISOString();
       reply.updatedBy = actor.id;
+      const localized = prepareLocalizedMutation(reply, localizedValues, ["content"], update.sourceLocale, now);
+      reply.translation = localized.translation;
+      reply.translations = localized.translations;
       return copy(reply);
+    },
+
+    completeStatusTranslation(statusId, revision, values, now = new Date()) {
+      return completeTranslation(statuses.get(statusId), revision, values, now);
+    },
+
+    failStatusTranslation(statusId, revision, errorCode, now = new Date()) {
+      return failTranslation(statuses.get(statusId), revision, errorCode, now);
+    },
+
+    completeThreadTranslation(threadId, revision, values, now = new Date()) {
+      return completeTranslation(threads.get(threadId), revision, values, now);
+    },
+
+    failThreadTranslation(threadId, revision, errorCode, now = new Date()) {
+      return failTranslation(threads.get(threadId), revision, errorCode, now);
+    },
+
+    completeReplyTranslation(threadId, replyId, revision, values, now = new Date()) {
+      return completeTranslation(replies.get(threadId)?.get(replyId), revision, values, now);
+    },
+
+    failReplyTranslation(threadId, replyId, revision, errorCode, now = new Date()) {
+      return failTranslation(replies.get(threadId)?.get(replyId), revision, errorCode, now);
     },
 
     setBookmark(userId, threadId, bookmarked, now = new Date()) {
@@ -290,7 +368,10 @@ export function createInMemoryDiscussionStore() {
         .filter((thread) => allowedSpaces.has(thread.spaceId))
         .map((thread) => {
           const threadReplies = [...replies.get(thread.id).values()].filter((reply) => !reply.deleted);
-          const haystack = [thread.title, thread.content, ...threadReplies.map((reply) => reply.content)]
+          const translatedThreadText = Object.values(thread.translations ?? {}).flatMap((values) => [values.title, values.content]);
+          const translatedReplyText = threadReplies.flatMap((reply) => Object.values(reply.translations ?? {}).map((values) => values.content));
+          const haystack = [thread.title, thread.content, ...translatedThreadText, ...threadReplies.map((reply) => reply.content), ...translatedReplyText]
+            .filter((value) => typeof value === "string")
             .join("\n")
             .toLocaleLowerCase("zh-Hant");
           return haystack.includes(normalizedQuery) ? copy(thread) : null;

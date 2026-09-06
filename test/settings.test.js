@@ -22,8 +22,10 @@ test("normalizeSiteTitle trims valid text and enforces the 80 character limit", 
 test("in-memory settings store keeps the normalized site title", async () => {
   const store = createInMemorySettingsStore({ siteTitle: "Initial" });
   assert.deepEqual(await store.getPublicSettings(), { siteTitle: "Initial" });
-  assert.deepEqual(await store.updateSettings({ siteTitle: "  Updated  " }), { siteTitle: "Updated" });
-  assert.deepEqual(await store.getPublicSettings(), { siteTitle: "Updated" });
+  const updated = await store.updateSettings({ siteTitle: "  Updated  " });
+  assert.equal(updated.siteTitle, "Updated");
+  assert.equal(updated.translation.state, "pending");
+  assert.equal((await store.getPublicSettings()).siteTitle, "Updated");
 });
 
 test("local settings store survives creating a new store instance", async (context) => {
@@ -36,7 +38,7 @@ test("local settings store survives creating a new store instance", async (conte
   await firstStore.updateSettings({ siteTitle: "  Restart Safe  " }, { id: "admin-1" });
 
   const secondStore = createLocalSettingsStore({ filePath, siteTitle: "Fallback" });
-  assert.deepEqual(await secondStore.getPublicSettings(), { siteTitle: "Restart Safe" });
+  assert.equal((await secondStore.getPublicSettings()).siteTitle, "Restart Safe");
   assert.equal(JSON.parse(await readFile(filePath, "utf8")).updatedBy, "admin-1");
 });
 
@@ -68,14 +70,13 @@ test("Firestore settings store falls back safely and persists updates", async ()
   const store = createFirestoreSettingsStore({}, { firestore, siteTitle: "Fallback" });
 
   assert.deepEqual(await store.getPublicSettings(), { siteTitle: "Fallback" });
-  assert.deepEqual(
-    await store.updateSettings({ siteTitle: "  Persistent Harbor  " }, { id: "admin-1" }),
-    { siteTitle: "Persistent Harbor" },
-  );
+  const updated = await store.updateSettings({ siteTitle: "  Persistent Harbor  " }, { id: "admin-1" });
+  assert.equal(updated.siteTitle, "Persistent Harbor");
+  assert.equal(updated.translation.state, "pending");
   assert.equal(storedData.siteTitle, "Persistent Harbor");
   assert.equal(storedData.updatedBy, "admin-1");
   assert.ok(storedData.updatedAt instanceof Date);
-  assert.deepEqual(await store.getPublicSettings(), { siteTitle: "Persistent Harbor" });
+  assert.equal((await store.getPublicSettings()).siteTitle, "Persistent Harbor");
 
   storedData.siteTitle = "";
   assert.deepEqual(await store.getPublicSettings(), { siteTitle: "Fallback" });

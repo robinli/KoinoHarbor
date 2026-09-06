@@ -4,6 +4,7 @@ import { getFirestore } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
 
 import { DEFAULT_SITE_TITLE, normalizeSiteTitle } from "./settings.js";
+import { completeLocalizedMutation, failLocalizedMutation, prepareLocalizedMutation } from "./localization.js";
 
 function iso(value) {
   return value?.toDate?.().toISOString?.() ?? value ?? null;
@@ -23,6 +24,34 @@ function plain(document) {
 
 function serverTimestamp() {
   return new Date();
+}
+
+async function mutateTranslationDocument(firestore, reference, mutation) {
+  if (typeof firestore.runTransaction !== "function") {
+    const current = plain(await reference.get());
+    const update = mutation(current);
+    if (!update) return false;
+    if (typeof reference.update === "function") await reference.update(update);
+    else await reference.set(update, { merge: true });
+    return true;
+  }
+  return firestore.runTransaction(async (transaction) => {
+    const current = plain(await transaction.get(reference));
+    const update = mutation(current);
+    if (!update) return false;
+    transaction.update(reference, update);
+    return true;
+  });
+}
+
+function completedTranslationUpdate(current, revision, values, now) {
+  const completed = completeLocalizedMutation(current, revision, values, now);
+  return completed.applied ? { translation: completed.translation, translations: completed.translations } : null;
+}
+
+function failedTranslationUpdate(current, revision, errorCode, now) {
+  const failed = failLocalizedMutation(current, revision, errorCode, now);
+  return failed.applied ? { translation: failed.translation } : null;
 }
 
 function validationError(message) {
@@ -73,7 +102,7 @@ export function createFirestoreSettingsStore(app, options = {}) {
       if (!snapshot.exists) return { siteTitle: defaultSiteTitle };
 
       try {
-        return { siteTitle: normalizeSiteTitle(snapshot.data()?.siteTitle) };
+        return { ...snapshot.data(), siteTitle: normalizeSiteTitle(snapshot.data()?.siteTitle) };
       } catch {
         return { siteTitle: defaultSiteTitle };
       }
@@ -82,12 +111,29 @@ export function createFirestoreSettingsStore(app, options = {}) {
     async updateSettings(input, actor) {
       const siteTitle = normalizeSiteTitle(input?.siteTitle);
       const now = serverTimestamp();
+      const snapshot = await settingsReference.get();
+      const current = snapshot.exists ? snapshot.data() : { siteTitle: defaultSiteTitle };
+      const localized = prepareLocalizedMutation(current, { siteTitle }, ["siteTitle"], input.sourceLocale, now);
       await settingsReference.set({
         siteTitle,
+        translation: localized.translation,
+        translations: localized.translations,
         updatedAt: now,
         updatedBy: actor.id,
       }, { merge: true });
-      return { siteTitle };
+      return { ...current, siteTitle, translation: localized.translation, translations: localized.translations, updatedAt: iso(now), updatedBy: actor.id };
+    },
+
+    async completeSettingsTranslation(revision, values, now = new Date()) {
+      return mutateTranslationDocument(firestore, settingsReference, (current) => (
+        completedTranslationUpdate(current, revision, values, now)
+      ));
+    },
+
+    async failSettingsTranslation(revision, errorCode, now = new Date()) {
+      return mutateTranslationDocument(firestore, settingsReference, (current) => (
+        failedTranslationUpdate(current, revision, errorCode, now)
+      ));
     },
   });
 }
@@ -123,6 +169,9 @@ export function createFirestoreSpaceStore(app) {
       const now = serverTimestamp();
       const parentId = await validateParent(input.parentId);
       const mode = accessMode(input.accessMode, parentId);
+      const description = typeof input.description === "string" ? input.description.trim() : "";
+      const name = requiredText(input.name, "工作區名稱");
+      const localized = prepareLocalizedMutation(null, { description, name }, ["name", "description"], input.sourceLocale, now);
       const data = {
         accessMode: mode,
         allowedRoles: allowedRoles(input.allowedRoles, mode),
@@ -131,12 +180,14 @@ export function createFirestoreSpaceStore(app) {
         createdBy: actor.id,
         deletedAt: null,
         deletedBy: null,
-        description: typeof input.description === "string" ? input.description.trim() : "",
-        name: requiredText(input.name, "工作區名稱"),
+        description,
+        name,
         parentId,
         sortOrder: sortOrder(input.sortOrder),
         updatedAt: now,
         updatedBy: actor.id,
+        translation: localized.translation,
+        translations: localized.translations,
       };
       await reference.set(data);
       return plain(await reference.get());
@@ -207,16 +258,40 @@ export function createFirestoreSpaceStore(app) {
       if (existing.deletedAt) throw conflictError("已刪除的工作區必須先還原才能編輯。");
       if (changes.parentId !== undefined || changes.accessMode !== undefined) throw validationError("工作區階層與存取模式建立後不可變更。");
       const update = { updatedAt: serverTimestamp(), updatedBy: actor.id };
-      if (changes.name !== undefined) update.name = requiredText(changes.name, "工作區名稱");
-      if (changes.description !== undefined) update.description = typeof changes.description === "string" ? changes.description.trim() : (() => { throw validationError("工作區說明必須是文字。"); })();
+      const localizedValues = {};
+      if (changes.name !== undefined) {
+        update.name = requiredText(changes.name, "工作區名稱");
+        localizedValues.name = update.name;
+      }
+      if (changes.description !== undefined) {
+        update.description = typeof changes.description === "string" ? changes.description.trim() : (() => { throw validationError("工作區說明必須是文字。"); })();
+        localizedValues.description = update.description;
+      }
       if (changes.sortOrder !== undefined) update.sortOrder = sortOrder(changes.sortOrder);
       if (changes.archived !== undefined) {
         if (typeof changes.archived !== "boolean") throw validationError("archived 必須是布林值。");
         update.archived = changes.archived;
       }
       if (changes.allowedRoles !== undefined) update.allowedRoles = allowedRoles(changes.allowedRoles, existing.accessMode);
+      const localized = prepareLocalizedMutation(existing, localizedValues, ["name", "description"], changes.sourceLocale);
+      update.translation = localized.translation;
+      update.translations = localized.translations;
       await reference.update(update);
       return plain(await reference.get());
+    },
+
+    async completeSpaceTranslation(spaceId, revision, values, now = new Date()) {
+      const reference = spaces.doc(spaceId);
+      return mutateTranslationDocument(firestore, reference, (current) => (
+        completedTranslationUpdate(current, revision, values, now)
+      ));
+    },
+
+    async failSpaceTranslation(spaceId, revision, errorCode, now = new Date()) {
+      const reference = spaces.doc(spaceId);
+      return mutateTranslationDocument(firestore, reference, (current) => (
+        failedTranslationUpdate(current, revision, errorCode, now)
+      ));
     },
 
     async deleteSpace(spaceId, actor) {
@@ -337,18 +412,26 @@ export function createFirestoreDiscussionStore(app) {
     async createStatus(input, actor) {
       const reference = statuses.doc();
       const now = serverTimestamp();
-      await reference.set({ active: input.active ?? true, createdAt: now, createdBy: actor.id, name: requiredText(input.name, "狀態名稱"), sortOrder: Number.isInteger(input.sortOrder) ? input.sortOrder : 1, updatedAt: now, updatedBy: actor.id });
+      const name = requiredText(input.name, "狀態名稱");
+      const localized = prepareLocalizedMutation(null, { name }, ["name"], input.sourceLocale, now);
+      await reference.set({ active: input.active ?? true, createdAt: now, createdBy: actor.id, name, sortOrder: Number.isInteger(input.sortOrder) ? input.sortOrder : 1, updatedAt: now, updatedBy: actor.id, translation: localized.translation, translations: localized.translations });
       return plain(await reference.get());
     },
     async listStatuses({ includeInactive = false } = {}) {
       const results = (await statuses.orderBy("sortOrder").get()).docs.map(plain);
       return includeInactive ? results : results.filter((status) => status.active);
     },
+    async getStatus(id) { return plain(await statuses.doc(id).get()); },
     async updateStatus(id, changes, actor) {
       const reference = statuses.doc(id);
-      if (!(await reference.get()).exists) return null;
+      const current = plain(await reference.get());
+      if (!current) return null;
       const update = { updatedAt: serverTimestamp(), updatedBy: actor.id };
-      if (changes.name !== undefined) update.name = requiredText(changes.name, "狀態名稱");
+      const localizedValues = {};
+      if (changes.name !== undefined) {
+        update.name = requiredText(changes.name, "狀態名稱");
+        localizedValues.name = update.name;
+      }
       if (changes.sortOrder !== undefined) {
         if (!Number.isInteger(changes.sortOrder)) throw validationError("sortOrder 必須是整數。");
         update.sortOrder = changes.sortOrder;
@@ -357,6 +440,9 @@ export function createFirestoreDiscussionStore(app) {
         if (typeof changes.active !== "boolean") throw validationError("active 必須是布林值。");
         update.active = changes.active;
       }
+      const localized = prepareLocalizedMutation(current, localizedValues, ["name"], changes.sourceLocale);
+      update.translation = localized.translation;
+      update.translations = localized.translations;
       await reference.update(update);
       return plain(await reference.get());
     },
@@ -383,7 +469,10 @@ export function createFirestoreDiscussionStore(app) {
       if (input.statusId && !(await statuses.doc(input.statusId).get()).exists) throw validationError("指定的討論狀態不存在。");
       const reference = threads.doc();
       const now = serverTimestamp();
-      await reference.set({ archived: false, authorId: actor.id, content: requiredText(input.content, "討論內容"), createdAt: now, createdBy: actor.id, deleted: false, pinned: false, spaceId: requiredText(input.spaceId, "工作區"), statusId: input.statusId || null, title: requiredText(input.title, "討論標題"), updatedAt: now, updatedBy: actor.id });
+      const content = requiredText(input.content, "討論內容");
+      const title = requiredText(input.title, "討論標題");
+      const localized = prepareLocalizedMutation(null, { content, title }, ["title", "content"], input.sourceLocale, now);
+      await reference.set({ archived: false, authorId: actor.id, content, createdAt: now, createdBy: actor.id, deleted: false, pinned: false, spaceId: requiredText(input.spaceId, "工作區"), statusId: input.statusId || null, title, updatedAt: now, updatedBy: actor.id, translation: localized.translation, translations: localized.translations });
       return plain(await reference.get());
     },
     async getThread(id) { return plain(await threads.doc(id).get()); },
@@ -398,8 +487,15 @@ export function createFirestoreDiscussionStore(app) {
       if (!current) return null;
       if (actor.id !== current.authorId && !canModerate) { const error = new Error("只能修改自己的討論串。"); error.statusCode = 403; throw error; }
       const update = { updatedAt: serverTimestamp(), updatedBy: actor.id };
-      if (changes.title !== undefined) update.title = requiredText(changes.title, "討論標題");
-      if (changes.content !== undefined) update.content = requiredText(changes.content, "討論內容");
+      const localizedValues = {};
+      if (changes.title !== undefined) {
+        update.title = requiredText(changes.title, "討論標題");
+        localizedValues.title = update.title;
+      }
+      if (changes.content !== undefined) {
+        update.content = requiredText(changes.content, "討論內容");
+        localizedValues.content = update.content;
+      }
       if (changes.statusId !== undefined) {
         if (changes.statusId) {
           const status = plain(await statuses.doc(changes.statusId).get());
@@ -416,6 +512,9 @@ export function createFirestoreDiscussionStore(app) {
         if (typeof changes.deleted !== "boolean") throw validationError("deleted 必須是布林值。");
         update.deleted = changes.deleted;
       }
+      const localized = prepareLocalizedMutation(current, localizedValues, ["title", "content"], changes.sourceLocale);
+      update.translation = localized.translation;
+      update.translations = localized.translations;
       await reference.update(update);
       return plain(await reference.get());
     },
@@ -426,7 +525,9 @@ export function createFirestoreDiscussionStore(app) {
       if (parentReplyId && !(await parent.collection("replies").doc(parentReplyId).get()).exists) throw validationError("指定的父回覆不存在。");
       const reference = parent.collection("replies").doc();
       const now = serverTimestamp();
-      await reference.set({ authorId: actor.id, content: requiredText(input.content, "回覆內容"), createdAt: now, createdBy: actor.id, deleted: false, parentReplyId, threadId, updatedAt: now, updatedBy: actor.id });
+      const content = requiredText(input.content, "回覆內容");
+      const localized = prepareLocalizedMutation(null, { content }, ["content"], input.sourceLocale, now);
+      await reference.set({ authorId: actor.id, content, createdAt: now, createdBy: actor.id, deleted: false, parentReplyId, threadId, updatedAt: now, updatedBy: actor.id, translation: localized.translation, translations: localized.translations });
       await parent.update({ updatedAt: now, updatedBy: actor.id });
       return plain(await reference.get());
     },
@@ -442,13 +543,56 @@ export function createFirestoreDiscussionStore(app) {
       if (actor.id !== current.authorId) { const error = new Error("只能修改自己的回覆。"); error.statusCode = 403; throw error; }
       const update = typeof changes === "string" ? { content: changes } : changes;
       const values = { updatedAt: serverTimestamp(), updatedBy: actor.id };
-      if (update.content !== undefined) values.content = requiredText(update.content, "回覆內容");
+      const localizedValues = {};
+      if (update.content !== undefined) {
+        values.content = requiredText(update.content, "回覆內容");
+        localizedValues.content = values.content;
+      }
       if (update.deleted !== undefined) {
         if (typeof update.deleted !== "boolean") throw validationError("deleted 必須是布林值。");
         values.deleted = update.deleted;
       }
+      const localized = prepareLocalizedMutation(current, localizedValues, ["content"], update.sourceLocale);
+      values.translation = localized.translation;
+      values.translations = localized.translations;
       await reference.update(values);
       return plain(await reference.get());
+    },
+    async completeStatusTranslation(id, revision, translatedValues, now = new Date()) {
+      const reference = statuses.doc(id);
+      return mutateTranslationDocument(firestore, reference, (current) => (
+        completedTranslationUpdate(current, revision, translatedValues, now)
+      ));
+    },
+    async failStatusTranslation(id, revision, errorCode, now = new Date()) {
+      const reference = statuses.doc(id);
+      return mutateTranslationDocument(firestore, reference, (current) => (
+        failedTranslationUpdate(current, revision, errorCode, now)
+      ));
+    },
+    async completeThreadTranslation(id, revision, translatedValues, now = new Date()) {
+      const reference = threads.doc(id);
+      return mutateTranslationDocument(firestore, reference, (current) => (
+        completedTranslationUpdate(current, revision, translatedValues, now)
+      ));
+    },
+    async failThreadTranslation(id, revision, errorCode, now = new Date()) {
+      const reference = threads.doc(id);
+      return mutateTranslationDocument(firestore, reference, (current) => (
+        failedTranslationUpdate(current, revision, errorCode, now)
+      ));
+    },
+    async completeReplyTranslation(threadId, replyId, revision, translatedValues, now = new Date()) {
+      const reference = threads.doc(threadId).collection("replies").doc(replyId);
+      return mutateTranslationDocument(firestore, reference, (current) => (
+        completedTranslationUpdate(current, revision, translatedValues, now)
+      ));
+    },
+    async failReplyTranslation(threadId, replyId, revision, errorCode, now = new Date()) {
+      const reference = threads.doc(threadId).collection("replies").doc(replyId);
+      return mutateTranslationDocument(firestore, reference, (current) => (
+        failedTranslationUpdate(current, revision, errorCode, now)
+      ));
     },
     async setBookmark(userId, threadId, bookmarked) {
       if (!(await threads.doc(threadId).get()).exists) return null;
@@ -467,7 +611,12 @@ export function createFirestoreDiscussionStore(app) {
       const results = [];
       for (const thread of candidates) {
         const threadReplies = await this.listReplies(thread.id);
-        const text = [thread.title, thread.content, ...threadReplies.map((reply) => reply.content)].join("\n").toLocaleLowerCase("zh-Hant");
+        const translatedThreadText = Object.values(thread.translations ?? {}).flatMap((values) => [values.title, values.content]);
+        const translatedReplyText = threadReplies.flatMap((reply) => Object.values(reply.translations ?? {}).map((values) => values.content));
+        const text = [thread.title, thread.content, ...translatedThreadText, ...threadReplies.map((reply) => reply.content), ...translatedReplyText]
+          .filter((value) => typeof value === "string")
+          .join("\n")
+          .toLocaleLowerCase("zh-Hant");
         if (text.includes(needle)) results.push(thread);
       }
       return results;

@@ -4,7 +4,7 @@
 
 | 集合 | 主要欄位 | 說明 |
 |---|---|---|
-| `users` | email、displayName、role、active、稽核欄位 | 使用者與固定單一群組；`role` 為 `admin`、`member` 或 `guest`。 |
+| `users` | email、displayName、role、active、preferredLocale、稽核欄位 | 使用者與固定單一群組；`role` 為 `admin`、`member` 或 `guest`，`preferredLocale` 為 `zh-TW` 或 `en`。 |
 | `spaces` | name、parentId、sortOrder、accessMode、allowedRoles、description、archived、deletedAt、deletedBy、稽核欄位 | 最多兩階；頂層固定 `restricted`，繼承子層的 `allowedRoles` 固定為空陣列。 |
 | `spaces/{spaceId}/members` | userId、稽核欄位 | 只用於頂層與 restricted 子工作區；繼承子層不建立直接加入關係。 |
 | `spaces/{spaceId}/messageReactions` | threadId、messageType、messageId、emoji、userId、userDisplayName、createdAt | 討論與回覆的 Emoji Reaction；瀏覽器只讀，寫入一律經 API。 |
@@ -16,6 +16,8 @@
 
 稽核欄位包含 `createdAt`、`createdBy`、`updatedAt`、`updatedBy`。
 
+網站設定、工作區、討論狀態、討論與回覆另包含 `translations.zh-TW`、`translations.en` 與 `translation` metadata。`translation` 記錄來源語系、revision、pending fields、狀態與時間；翻譯完成以 transaction 比對 revision，過期任務不會覆蓋較新的編輯。舊文件不要求回填，API 會以繁體中文 legacy 資料回傳。
+
 ## API
 
 | Method | Path | 用途 |
@@ -26,7 +28,7 @@
 | POST | `/api/auth/firebase-session` | 將 Firebase ID Token 交換成 HttpOnly Session Cookie。 |
 | POST | `/api/auth/firebase-client-token` | 正式環境以現有 Session 取得 Firestore 只讀即時監聽所需的短期 custom token。 |
 | POST | `/api/auth/logout` | 登出並清除 Session。 |
-| GET | `/api/auth/me` | 取得目前使用者。 |
+| GET／PATCH | `/api/auth/me` | 取得目前使用者，或修改自己的顯示名稱、密碼與 `preferredLocale`。 |
 | GET／PATCH | `/api/users`、`/api/users/{id}` | Admin 使用者管理。 |
 | GET／POST | `/api/spaces` | 查詢有內容權限的工作區或建立工作區；建立必須提供 `allowedRoles`。 |
 | GET | `/api/admin/spaces?state=active\|deleted\|all` | Admin 依狀態查詢工作區管理資料，不代表取得內容權限。 |
@@ -45,6 +47,16 @@
 | GET | `/api/search?q=...` | 搜尋標題、內容與回覆。 |
 | GET／POST | `/api/threads/{id}/attachments` | 附件清單與上傳。 |
 | GET | `/api/attachments/{id}` | 經授權下載附件。 |
+| POST | `/internal/translation-tasks` | Cloud Tasks 翻譯 worker；只接受設定服務帳號簽發且 audience 相符的 OIDC token。 |
+
+## 語系與翻譯
+
+- 支援 `zh-TW` 與 `en`。API 依 `locale` query parameter、`Accept-Language`、帳號 `preferredLocale` 的順序決定輸出語系。
+- 寫入時以該次 request locale 作為來源語系，原文立即儲存，再非同步翻譯至另一語系。
+- API 只投影要求語系的文字欄位，並回傳 `translationStatus`：`state`、`revision`、`sourceLocale`、`requestedLocale`、`isFallback`。
+- `pending`、`failed` 或 legacy 資料缺少目標文字時，回傳來源／舊文字而不傳回空白內容。
+- 搜尋同時比對兩個語系，因此切換語言後仍可使用任一語言搜尋已完成翻譯的內容。
+- 自動翻譯範圍為網站標題、工作區名稱與說明、討論狀態名稱、討論標題與內容、回覆內容。顯示名稱、Email、密碼、附件檔名與 Emoji 等識別／非自然語言資料不送翻譯服務。
 
 ## 儲存模式
 

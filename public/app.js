@@ -1,3 +1,50 @@
+import {
+  applyTranslations,
+  getLocale,
+  localizedFetch,
+  observeTranslations,
+  setLocale,
+  t,
+} from "./i18n.js";
+
+const nativeFetch = window.fetch.bind(window);
+const fetch = (input, init) => localizedFetch(nativeFetch, input, init);
+let translationPollTimer = null;
+
+function translationBadge(record) {
+  const state = record?.translationStatus?.state;
+  if (!["pending", "failed"].includes(state)) return null;
+  const badge = document.createElement("span");
+  badge.className = `translation-badge is-${state}`;
+  badge.textContent = state === "pending" ? t("翻譯中") : t("翻譯失敗");
+  badge.setAttribute("role", "status");
+  return badge;
+}
+
+function appendTranslationBadge(container, record) {
+  const badge = translationBadge(record);
+  if (badge) container.append(badge);
+}
+
+function notePendingTranslations(records) {
+  if (!records.some((record) => record?.translationStatus?.state === "pending") || translationPollTimer) return;
+  translationPollTimer = window.setTimeout(async () => {
+    translationPollTimer = null;
+    try {
+      if (!signedInUser) {
+        await loadPublicSettings();
+        return;
+      }
+      await loadSpaces();
+      await loadStatuses();
+      await loadDashboard();
+      await loadThreads();
+    } catch (error) {
+      setSystemMessage(discussionMessage, error.message, "error");
+    }
+  }, 3000);
+}
+
 const loginForm = document.querySelector("#login-form");
 const loginMessage = document.querySelector("#login-message");
 const forgotPasswordButton = document.querySelector("#forgot-password-button");
@@ -112,6 +159,11 @@ async function loadPublicSettings(fallbackSiteTitle = DEFAULT_SITE_TITLE) {
     const response = await fetch("/api/settings/public", { headers: { Accept: "application/json" } });
     const payload = await readJsonResponse(response);
     applySiteTitle(payload.siteTitle);
+    for (const element of document.querySelectorAll("[data-site-title]")) {
+      element.parentElement.querySelector(".translation-badge")?.remove();
+      appendTranslationBadge(element.parentElement, payload);
+    }
+    notePendingTranslations([payload]);
   } catch {
     applySiteTitle(fallbackSiteTitle);
   }
@@ -277,12 +329,12 @@ function updateDiscussionHeading(space = null) {
 
 function formatRelativeTime(value) {
   const timestamp = new Date(value);
-  if (!Number.isFinite(timestamp.getTime())) return "unknown time";
+  if (!Number.isFinite(timestamp.getTime())) return getLocale() === "en" ? "Unknown time" : "未知時間";
 
   const now = new Date();
   const elapsedSeconds = Math.max(0, Math.floor((now.getTime() - timestamp.getTime()) / 1_000));
   if (elapsedSeconds >= 604_800) {
-    return new Intl.DateTimeFormat("en-US", {
+    return new Intl.DateTimeFormat(getLocale(), {
       day: "numeric",
       month: "short",
       ...(timestamp.getFullYear() !== now.getFullYear() ? { year: "numeric" } : {}),
@@ -291,22 +343,22 @@ function formatRelativeTime(value) {
 
   const units = [
     [86_400, "day"],
-    [3_600, "hr"],
-    [60, "min"],
+    [3_600, "hour"],
+    [60, "minute"],
   ];
   const unit = units.find(([seconds]) => elapsedSeconds >= seconds);
-  if (!unit) return "just now";
+  if (!unit) return new Intl.RelativeTimeFormat(getLocale(), { numeric: "auto" }).format(0, "second");
 
   const [seconds, label] = unit;
   const amount = Math.floor(elapsedSeconds / seconds);
-  return `${amount} ${label}${amount !== 1 ? "s" : ""} ago`;
+  return new Intl.RelativeTimeFormat(getLocale(), { numeric: "auto" }).format(-amount, label);
 }
 
 function formatFullDateTime(value) {
   const timestamp = new Date(value);
-  if (!Number.isFinite(timestamp.getTime())) return "Unknown time";
+  if (!Number.isFinite(timestamp.getTime())) return getLocale() === "en" ? "Unknown time" : "未知時間";
 
-  return new Intl.DateTimeFormat("zh-TW", {
+  return new Intl.DateTimeFormat(getLocale(), {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(timestamp);
@@ -317,6 +369,7 @@ function createAuthorMetadata(message) {
   const meta = document.createElement("span");
   meta.className = "message-author-meta";
   const author = document.createElement("span");
+  author.dataset.userContent = "";
   author.textContent = `${authorName} / `;
   const timestamp = document.createElement("time");
   timestamp.dateTime = message.updatedAt ?? "";
@@ -451,11 +504,15 @@ function createThreadSummary(thread) {
   const status = availableStatuses.find((item) => item.id === thread.statusId);
   const meta = document.createElement("p");
   meta.className = "thread-summary-meta";
-  meta.textContent = `${space?.name ?? "工作區"} · ${status?.name ?? "無狀態"}`;
+  meta.dataset.userContent = "";
+  meta.textContent = `${space?.name ?? t("工作區")} · ${status?.name ?? t("無狀態")}`;
   const title = document.createElement("h4");
+  title.dataset.userContent = "";
   title.textContent = thread.title;
+  appendTranslationBadge(title, thread);
   const content = document.createElement("p");
   content.className = "thread-summary-content";
+  content.dataset.userContent = "";
   content.textContent = thread.content;
   const openButton = document.createElement("button");
   openButton.type = "button";
@@ -471,6 +528,7 @@ async function loadDashboard() {
   const response = await fetch("/api/threads", { headers: { Accept: "application/json" } });
   const payload = await readJsonResponse(response);
   const allThreads = payload.threads;
+  notePendingTranslations(allThreads);
   const threads = dashboardSpaceFilter.value
     ? allThreads.filter((thread) => thread.spaceId === dashboardSpaceFilter.value)
     : allThreads;
@@ -485,6 +543,7 @@ async function loadDashboard() {
   statusSummary.replaceChildren(...[...counts.entries()].map(([label, count]) => {
     const item = document.createElement("div");
     const name = document.createElement("span");
+    name.dataset.userContent = "";
     name.textContent = label;
     const value = document.createElement("strong");
     value.textContent = String(count);
@@ -503,7 +562,7 @@ function createUserRow(user) {
   identity.className = "user-identity";
   const displayName = document.createElement("input");
   displayName.value = user.displayName;
-  displayName.setAttribute("aria-label", `${user.email} 的顯示名稱`);
+  displayName.setAttribute("aria-label", t("{email} 的顯示名稱", { email: user.email }));
   const email = document.createElement("small");
   email.textContent = user.email;
   identity.append(displayName, email);
@@ -515,12 +574,12 @@ function createUserRow(user) {
   password.minLength = 8;
   password.autocomplete = "new-password";
   password.placeholder = "留空則不變更";
-  password.setAttribute("aria-label", `${user.email} 的新密碼`);
+  password.setAttribute("aria-label", t("{email} 的新密碼", { email: user.email }));
   passwordCell.append(password);
 
   const roleCell = document.createElement("td");
   const role = document.createElement("select");
-  role.setAttribute("aria-label", `${user.email} 的角色`);
+  role.setAttribute("aria-label", t("{email} 的角色", { email: user.email }));
   for (const value of ["admin", "member", "guest"]) {
     const option = document.createElement("option");
     option.value = value;
@@ -565,7 +624,7 @@ function createUserRow(user) {
       await readJsonResponse(response);
       const changedPassword = Boolean(password.value);
       password.value = "";
-      setSystemMessage(userAdminMessage, `已更新 ${user.email} 的名稱${changedPassword ? "與密碼" : ""}。`);
+      setSystemMessage(userAdminMessage, t(changedPassword ? "已更新 {email} 的名稱與密碼。" : "已更新 {email} 的名稱。", { email: user.email }));
     } catch (error) {
       setSystemMessage(userAdminMessage, error.message, "error");
     } finally {
@@ -639,7 +698,7 @@ userCreateForm.addEventListener("submit", async (event) => {
     const payload = await readJsonResponse(response);
     userCreateForm.reset();
     await loadUsers();
-    setSystemMessage(userAdminMessage, `已新增 ${payload.user.email}。`);
+    setSystemMessage(userAdminMessage, t("已新增 {email}。", { email: payload.user.email }));
   } catch (error) {
     setSystemMessage(userAdminMessage, error.message, "error");
   }
@@ -654,6 +713,7 @@ async function loadSpaceMembers(spaceId, listElement) {
   listElement.replaceChildren(...payload.members.map((membership) => {
     const item = document.createElement("li");
     const label = document.createElement("span");
+    label.dataset.userContent = "";
     label.textContent = `${membership.user?.email ?? membership.userId} · ${membership.user?.role ?? "未知群組"}`;
     const removeButton = document.createElement("button");
     removeButton.type = "button";
@@ -680,16 +740,28 @@ function createMembershipSpaceRow(space) {
   const details = document.createElement("div");
   details.className = "membership-space-details";
   const title = document.createElement("h3");
+  title.dataset.userContent = "";
   title.textContent = `# ${space.name}`;
+  appendTranslationBadge(title, space);
   const metadata = document.createElement("p");
   metadata.className = "membership-space-metadata";
   if (isDirectMember || isInheritedMember) {
     const joinedStatus = document.createElement("strong");
     joinedStatus.textContent = isInheritedMember ? "✓ 已加入（繼承）" : "✓ 已加入";
     metadata.append(joinedStatus);
-    if (space.description) metadata.append(` · ${space.description}`);
+    if (space.description) {
+      const description = document.createElement("span");
+      description.dataset.userContent = "";
+      description.textContent = ` · ${space.description}`;
+      metadata.append(description);
+    }
   } else {
-    metadata.textContent = space.description || "尚未提供說明。";
+    if (space.description) {
+      metadata.dataset.userContent = "";
+      metadata.textContent = space.description;
+    } else {
+      metadata.textContent = "尚未提供說明。";
+    }
   }
   details.append(title, metadata);
   const button = document.createElement("button");
@@ -705,7 +777,7 @@ function createMembershipSpaceRow(space) {
       await loadSpaces();
       await loadMembershipSpaces();
       await loadUnreadSummary();
-      setSystemMessage(joinableMessage, isDirectMember ? `已退出「${space.name}」。` : `已加入「${space.name}」。`);
+      setSystemMessage(joinableMessage, t(isDirectMember ? "已退出「{name}」。" : "已加入「{name}」。", { name: space.name }));
     } catch (error) {
       setSystemMessage(joinableMessage, error.message, "error");
     } finally {
@@ -724,8 +796,8 @@ async function joinSpace(space) {
 
 async function leaveSpace(space) {
   const affected = availableSpaces.filter((candidate) => candidate.parentId === space.id && candidate.membershipType === "inherited");
-  const suffix = affected.length ? `\n退出後也會失去：${affected.map((candidate) => candidate.name).join("、")}` : "";
-  if (!window.confirm(`確定退出「${space.name}」？${suffix}`)) return false;
+  const suffix = affected.length ? `\n${t("退出後也會失去：{names}", { names: affected.map((candidate) => candidate.name).join("、") })}` : "";
+  if (!window.confirm(t("確定退出「{name}」？{suffix}", { name: space.name, suffix }))) return false;
   const response = await fetch(`/api/spaces/${encodeURIComponent(space.id)}/membership`, { method: "DELETE" });
   await readJsonResponse(response);
   return true;
@@ -751,6 +823,8 @@ function renderSpaceOverview() {
   const selectedSpace = managedSpaces.find((space) => space.id === selectedSidebarSpaceId) ?? null;
   const visibleSpaces = selectedSpace ? [selectedSpace] : orderedSpaces(managedSpaces);
 
+  if (selectedSpace) spacesTitle.dataset.userContent = "";
+  else delete spacesTitle.dataset.userContent;
   spacesTitle.textContent = selectedSpace?.name ?? "工作區管理";
   createRootSpaceButton.hidden = signedInUser?.role !== "admin" || managedSpaceState !== "active";
   spaceList.replaceChildren(...visibleSpaces.map(createSpaceCard));
@@ -798,12 +872,12 @@ async function deleteManagedSpace(space) {
   const impact = space.parentId
     ? "刪除後使用者將無法存取此子工作區，但內容與成員資料會保留。"
     : "刪除後使用者將無法存取此工作區；若尚有使用中的子工作區，系統會拒絕操作。";
-  if (!window.confirm(`確定刪除「${space.name}」？\n${impact}`)) return false;
+  if (!window.confirm(t("確定刪除「{name}」？\n{impact}", { impact: t(impact), name: space.name }))) return false;
   const response = await fetch(`/api/spaces/${encodeURIComponent(space.id)}`, { method: "DELETE" });
   await readJsonResponse(response);
   selectedSidebarSpaceId = null;
   await loadSpaces();
-  setSystemMessage(spaceMessage, `已刪除「${space.name}」，可於「已刪除」清單還原。`);
+  setSystemMessage(spaceMessage, t("已刪除「{name}」，可於「已刪除」清單還原。", { name: space.name }));
   return true;
 }
 
@@ -812,7 +886,7 @@ async function restoreManagedSpace(space) {
   await readJsonResponse(response);
   selectedSidebarSpaceId = null;
   await loadSpaces();
-  setSystemMessage(spaceMessage, `已還原「${space.name}」。`);
+  setSystemMessage(spaceMessage, t("已還原「{name}」。", { name: space.name }));
 }
 
 function createSpaceCard(space) {
@@ -822,8 +896,10 @@ function createSpaceCard(space) {
   header.className = "space-item-header";
   const headingGroup = document.createElement("div");
   const title = document.createElement("h3");
+  title.dataset.userContent = "";
   title.textContent = space.name;
   headingGroup.append(title);
+  appendTranslationBadge(headingGroup, space);
   header.append(headingGroup);
 
   if (signedInUser.role === "admin") {
@@ -859,11 +935,12 @@ function createSpaceCard(space) {
   }
 
   const description = document.createElement("p");
-  description.textContent = `排序:${space.sortOrder ?? 0} ${space.description || "尚未提供說明。"}`;
+  description.dataset.userContent = "";
+  description.textContent = t("排序:{order} {description}", { order: space.sortOrder ?? 0, description: space.description || t("尚未提供說明。") });
   const allowedGroups = document.createElement("p");
   allowedGroups.textContent = space.accessMode === "inherited"
     ? "群組與成員資格：繼承父工作區"
-    : `允許群組：${space.allowedRoles.join("、")}`;
+    : t("允許群組：{roles}", { roles: space.allowedRoles.join("、") });
   card.append(header, description, allowedGroups);
 
   if (signedInUser.role === "admin" && !space.deletedAt && space.accessMode === "restricted") {
@@ -874,7 +951,7 @@ function createSpaceCard(space) {
     const control = document.createElement("div");
     control.className = "member-control";
     const userSelect = document.createElement("select");
-    userSelect.setAttribute("aria-label", `${space.name} 新增成員`);
+    userSelect.setAttribute("aria-label", t("{name} 新增成員", { name: space.name }));
     for (const user of availableUsers.filter((item) => item.active && space.allowedRoles.includes(item.role))) {
       const option = document.createElement("option");
       option.value = user.id;
@@ -936,7 +1013,7 @@ function openSpaceDialog({ parent = null, space = null } = {}) {
   spaceArchivedField.hidden = creating;
   syncSpaceAccessControls();
   spaceDialogTitle.textContent = creating
-    ? (parent ? `在「${parent.name}」下新增子工作區` : "新增頂層工作區")
+    ? (parent ? t("在「{name}」下新增子工作區", { name: parent.name }) : "新增頂層工作區")
     : "編輯工作區";
   spaceDialogSubmit.textContent = creating ? "建立工作區" : "儲存變更";
   spaceDialogDelete.hidden = creating;
@@ -954,6 +1031,7 @@ async function loadSpaces() {
     });
     const payload = await readJsonResponse(response);
     availableSpaces = payload.spaces;
+    notePendingTranslations(availableSpaces);
     const previousSpaceId = selectedThreadSpaceId ?? threadSpaceFilter.value;
     const previousCreateSpaceId = threadSpaceSelect.value;
     const activeSpaces = orderedSpaces(payload.spaces.filter((space) => !space.archived));
@@ -963,6 +1041,7 @@ async function loadSpaces() {
       .map((space) => {
         const option = document.createElement("option");
         option.value = space.id;
+        option.dataset.userContent = "";
         option.textContent = `${space.parentId && visibleIds.has(space.parentId) ? "↳ " : ""}${space.name}`;
         return option;
       });
@@ -996,6 +1075,7 @@ async function loadSpaces() {
       unreadDot.hidden = true;
       const label = document.createElement("span");
       label.className = "workspace-label";
+      label.dataset.userContent = "";
       label.textContent = space.name;
       button.append(prefix, unreadDot, label);
       button.classList.toggle("is-child-space-link", Boolean(space.parentId && visibleIds.has(space.parentId)));
@@ -1023,7 +1103,7 @@ async function loadSpaces() {
     }
     for (const button of document.querySelectorAll("[data-open-thread-form]")) {
       button.disabled = !activeSpaces.length;
-      button.title = activeSpaces.length ? "新增討論" : "加入工作區後才能新增討論";
+      button.title = t(activeSpaces.length ? "新增討論" : "加入工作區後才能新增討論");
     }
   } catch (error) {
     setSystemMessage(spaceMessage, error.message, "error");
@@ -1033,7 +1113,11 @@ async function loadSpaces() {
 function createStatusChip(status) {
   const chip = document.createElement("span");
   chip.className = `status-chip${status.active ? "" : " is-inactive"}`;
-  chip.textContent = `${status.sortOrder}. ${status.name}`;
+  const statusName = document.createElement("span");
+  statusName.dataset.userContent = "";
+  statusName.textContent = `${status.sortOrder}. ${status.name}`;
+  chip.append(statusName);
+  appendTranslationBadge(chip, status);
 
   if (signedInUser.role === "admin") {
     const editButton = document.createElement("button");
@@ -1070,14 +1154,14 @@ function createStatusChip(status) {
       deleteButton.title = "永久刪除此狀態";
       deleteButton.textContent = "刪除";
       deleteButton.addEventListener("click", async () => {
-        if (!window.confirm(`確定永久刪除「${status.name}」？`)) return;
+        if (!window.confirm(t("確定永久刪除「{name}」？", { name: status.name }))) return;
         try {
           const response = await fetch(`/api/thread-statuses/${encodeURIComponent(status.id)}`, {
             method: "DELETE",
           });
           await readJsonResponse(response);
           await loadStatuses();
-          setSystemMessage(discussionMessage, `已刪除討論狀態「${status.name}」。`);
+          setSystemMessage(discussionMessage, t("已刪除討論狀態「{name}」。", { name: status.name }));
         } catch (error) {
           setSystemMessage(discussionMessage, error.message, "error");
         }
@@ -1095,6 +1179,7 @@ async function loadStatuses() {
   });
   const payload = await readJsonResponse(response);
   availableStatuses = payload.statuses;
+  notePendingTranslations(availableStatuses);
   statusList.replaceChildren(...availableStatuses.map(createStatusChip));
   const selectedStatusId = threadStatusFilter.value;
   threadStatusFilter.replaceChildren();
@@ -1105,6 +1190,7 @@ async function loadStatuses() {
   for (const status of availableStatuses.filter((item) => item.active)) {
     const option = document.createElement("option");
     option.value = status.id;
+    option.dataset.userContent = "";
     option.textContent = status.name;
     threadStatusFilter.append(option);
   }
@@ -1119,6 +1205,7 @@ async function loadStatuses() {
   for (const status of availableStatuses.filter((item) => item.active)) {
     const option = document.createElement("option");
     option.value = status.id;
+    option.dataset.userContent = "";
     option.textContent = status.name;
     threadStatusSelect.append(option);
   }
@@ -1227,6 +1314,7 @@ function renderAttachmentList(container, attachments, pendingRemovalIds = null) 
     link.href = `/api/attachments/${encodeURIComponent(attachment.id)}`;
     link.target = "_blank";
     link.rel = "noopener";
+    link.dataset.userContent = "";
     link.textContent = attachment.fileName;
     const size = document.createElement("small");
     size.textContent = `${Math.ceil(attachment.fileSize / 1024)} KB`;
@@ -1264,6 +1352,7 @@ function createStatusSelect(selectedStatusId) {
   for (const status of availableStatuses.filter((item) => item.active || item.id === selectedStatusId)) {
     const option = document.createElement("option");
     option.value = status.id;
+    option.dataset.userContent = "";
     option.textContent = status.name;
     select.append(option);
   }
@@ -1271,7 +1360,8 @@ function createStatusSelect(selectedStatusId) {
   return select;
 }
 
-const emojiPickerI18n = {
+function emojiPickerI18n() {
+  const values = {
   categoriesLabel: "分類",
   emojiUnsupportedMessage: "此瀏覽器不支援彩色 Emoji。",
   favoritesLabel: "常用",
@@ -1297,7 +1387,16 @@ const emojiPickerI18n = {
     symbols: "符號",
     flags: "旗幟",
   },
-};
+  };
+  return {
+    ...values,
+    categories: Object.fromEntries(Object.entries(values.categories).map(([key, value]) => [key, t(value)])),
+    skinTones: values.skinTones.map((value) => t(value)),
+    ...Object.fromEntries(Object.entries(values)
+      .filter(([key]) => !["categories", "skinTones"].includes(key))
+      .map(([key, value]) => [key, t(value)])),
+  };
+}
 
 function reactionMessageKey(messageType, messageId) {
   return `${messageType}:${messageId}`;
@@ -1405,10 +1504,15 @@ function renderReactionList(container, reactions = []) {
     const chip = document.createElement("button");
     chip.type = "button";
     chip.className = `reaction-chip${reaction.reactedByCurrentUser ? " is-selected" : ""}`;
-    const reactorNames = reaction.reactors.map((reactor) => reactor.displayName).join("、");
+    const reactorNames = new Intl.ListFormat(getLocale(), { style: "short", type: "conjunction" })
+      .format(reaction.reactors.map((reactor) => reactor.displayName));
     chip.setAttribute(
       "aria-label",
-      `${reactorNames} 對此訊息標示 ${reaction.emoji}；點擊${reaction.reactedByCurrentUser ? "取消" : "加入"}`,
+      t("{names} 對此訊息標示 {emoji}；點擊{action}", {
+        action: t(reaction.reactedByCurrentUser ? "取消此表情" : "加入此表情"),
+        emoji: reaction.emoji,
+        names: reactorNames,
+      }),
     );
     const emoji = document.createElement("span");
     emoji.className = "reaction-emoji";
@@ -1418,6 +1522,7 @@ function renderReactionList(container, reactions = []) {
     count.textContent = String(reaction.count);
     const tooltip = document.createElement("span");
     tooltip.className = "reaction-tooltip";
+    tooltip.dataset.userContent = "";
     tooltip.setAttribute("role", "tooltip");
     tooltip.textContent = reactorNames;
     chip.append(emoji, count, tooltip);
@@ -1596,8 +1701,8 @@ async function openEmojiPicker(trigger, target) {
     host.setAttribute("aria-label", "選擇表情符號");
     const picker = new Picker({
       dataSource: "/vendor/emoji-data.json",
-      i18n: emojiPickerI18n,
-      locale: "zh-Hant",
+      i18n: emojiPickerI18n(),
+      locale: getLocale() === "en" ? "en" : "zh-Hant",
     });
     applySlackInspiredEmojiPickerStyles(picker);
     picker.addEventListener("emoji-click", async (event) => {
@@ -1618,7 +1723,7 @@ async function openEmojiPicker(trigger, target) {
     window.requestAnimationFrame(positionEmojiPicker);
   } catch (error) {
     closeEmojiPicker();
-    setSystemMessage(discussionMessage, `無法載入表情符號選擇器：${error.message}`, "error");
+    setSystemMessage(discussionMessage, t("無法載入表情符號選擇器：{message}", { message: error.message }), "error");
   }
 }
 
@@ -1693,7 +1798,7 @@ async function startReactionRealtime(threads) {
       reactionListenerUnsubscribers.push(context.modules.onSnapshot(
         reactionQuery,
         applyRealtimeReactionChanges,
-        (error) => setSystemMessage(discussionMessage, `Reaction 即時同步已中斷：${error.message}`, "error"),
+        (error) => setSystemMessage(discussionMessage, t("Reaction 即時同步已中斷：{message}", { message: error.message }), "error"),
       ));
     }
   }
@@ -1764,7 +1869,9 @@ function renderReplyTree(thread, replies, attachments, container, onRefresh) {
     observeUnreadMessage(message, "reply", reply.id, thread.id);
     const content = document.createElement("p");
     content.className = "reply-content";
+    content.dataset.userContent = "";
     content.textContent = reply.content;
+    appendTranslationBadge(message, reply);
     const replyAttachments = attachments.filter((attachment) => attachment.replyId === reply.id);
     const attachmentList = document.createElement("div");
     attachmentList.className = "attachment-list reply-attachment-list";
@@ -1954,27 +2061,30 @@ function createThreadCard(thread) {
   const titleLine = document.createElement("div");
   titleLine.className = "thread-title-line";
   const title = document.createElement("h3");
+  title.dataset.userContent = "";
   title.textContent = thread.title;
+  appendTranslationBadge(title, thread);
   const threadIsUnread = unreadMessageKeys.has(unreadMessageKey("thread", thread.id));
   titleLine.append(title, createAuthorMetadata(thread));
   const status = availableStatuses.find((item) => item.id === thread.statusId);
   const meta = document.createElement("span");
   meta.className = "thread-meta";
+  meta.dataset.userContent = "";
   meta.textContent = [
-    status?.name ?? "無狀態",
-    ...(thread.bookmarked ? ["已加入書籤"] : []),
-    ...(thread.pinned ? ["置頂"] : []),
+    status?.name ?? t("無狀態"),
+    ...(thread.bookmarked ? [t("已加入書籤")] : []),
+    ...(thread.pinned ? [t("置頂")] : []),
   ].join(" · ");
   titleGroup.append(titleLine, meta);
 
   const headerActions = document.createElement("div");
   headerActions.className = "thread-header-actions";
   headerActions.setAttribute("role", "toolbar");
-  headerActions.setAttribute("aria-label", `${thread.title} 的討論操作`);
+  headerActions.setAttribute("aria-label", t("{title} 的討論操作", { title: thread.title }));
   const replyAction = document.createElement("button");
   replyAction.type = "button";
   replyAction.className = "thread-header-button btn btn-quiet";
-  configureMessageIconAction(replyAction, { accessibleLabel: `回覆「${thread.title}」`, tooltip: "回覆" });
+  configureMessageIconAction(replyAction, { accessibleLabel: t("回覆「{title}」", { title: thread.title }), tooltip: "回覆" });
   const replyIcon = document.createElement("i");
   replyIcon.className = "bi bi-chat-left-text";
   replyIcon.setAttribute("aria-hidden", "true");
@@ -1992,7 +2102,7 @@ function createThreadCard(thread) {
   actionMenuToggle.setAttribute("role", "button");
   actionMenuToggle.setAttribute("aria-haspopup", "menu");
   actionMenuToggle.setAttribute("aria-expanded", "false");
-  actionMenuToggle.setAttribute("aria-label", `開啟「${thread.title}」的更多操作`);
+  actionMenuToggle.setAttribute("aria-label", t("開啟「{title}」的更多操作", { title: thread.title }));
   actionMenuToggle.setAttribute("title", "更多操作");
   const moreIcon = document.createElement("i");
   moreIcon.className = "bi bi-three-dots";
@@ -2060,6 +2170,7 @@ function createThreadCard(thread) {
   header.append(titleGroup, headerActions);
   const body = document.createElement("p");
   body.className = "thread-body";
+  body.dataset.userContent = "";
   body.textContent = thread.content;
   const attachmentList = document.createElement("div");
   attachmentList.className = "attachment-list thread-attachment-list";
@@ -2201,12 +2312,13 @@ async function loadThreads() {
     const url = threadSourceUrl ?? (selectedSpaceId ? `/api/threads?spaceId=${encodeURIComponent(selectedSpaceId)}` : "/api/threads");
     const response = await fetch(url, { headers: { Accept: "application/json" } });
     const payload = await readJsonResponse(response);
+    notePendingTranslations(payload.threads);
     const threads = selectedStatusId
       ? payload.threads.filter((thread) => thread.statusId === selectedStatusId)
       : payload.threads;
     threadList.replaceChildren(...threads.map(createThreadCard));
     void startReactionRealtime(threads).catch((error) => {
-      setSystemMessage(discussionMessage, `Reaction 即時同步無法啟動：${error.message}`, "error");
+      setSystemMessage(discussionMessage, t("Reaction 即時同步無法啟動：{message}", { message: error.message }), "error");
     });
     if (!threads.length) {
       const empty = document.createElement("p");
@@ -2229,7 +2341,9 @@ async function loadDiscussion() {
 function showUser(user) {
   resetPortalData();
   signedInUser = user;
+  setLocale(user.preferredLocale ?? getLocale());
   portalAvatar.textContent = userInitials(user.displayName);
+  portalUserName.dataset.userContent = "";
   portalUserName.textContent = user.displayName;
   portalUserRole.textContent = user.role;
   signedOutView.hidden = true;
@@ -2545,6 +2659,7 @@ for (const button of document.querySelectorAll("[data-close-dialog]")) {
 portalProfileButton.addEventListener("click", () => {
   profileForm.reset();
   profileForm.elements.displayName.value = signedInUser.displayName;
+  profileForm.elements.preferredLocale.value = signedInUser.preferredLocale ?? getLocale();
   profileMessage.textContent = "";
   profileDialog.showModal();
 });
@@ -2565,6 +2680,7 @@ profileForm.addEventListener("submit", async (event) => {
   submitButton.disabled = true;
 
   try {
+    const activeView = document.querySelector("[data-portal-view]:not([hidden])")?.dataset.portalView;
     const response = await fetch("/api/auth/me", {
       method: "PATCH",
       headers: {
@@ -2573,17 +2689,27 @@ profileForm.addEventListener("submit", async (event) => {
       },
       body: JSON.stringify({
         displayName: formData.get("displayName"),
+        preferredLocale: formData.get("preferredLocale"),
         ...(password ? { password } : {}),
       }),
     });
     const payload = await readJsonResponse(response);
+    const localeChanged = getLocale() !== payload.user.preferredLocale;
     signedInUser = payload.user;
+    setLocale(payload.user.preferredLocale);
     portalAvatar.textContent = userInitials(payload.user.displayName);
+    portalUserName.dataset.userContent = "";
     portalUserName.textContent = payload.user.displayName;
     profileForm.elements.password.value = "";
     profileForm.elements.passwordConfirmation.value = "";
-    setSystemMessage(profileMessage, "個人資料已更新。");
     if (signedInUser.role === "admin") await loadUsers();
+    if (localeChanged) {
+      await loadPublicSettings();
+      await loadSpaces();
+      await loadDiscussion();
+      if (activeView === "joinable") await loadMembershipSpaces();
+    }
+    setSystemMessage(profileMessage, "個人資料已更新。");
   } catch (error) {
     setSystemMessage(profileMessage, error.message, "error");
   } finally {
@@ -2655,5 +2781,13 @@ async function showBookmarks() {
 
 portalBookmarks.addEventListener("click", showBookmarks);
 
+for (const selector of document.querySelectorAll("[data-locale-select]")) {
+  selector.value = getLocale();
+  selector.addEventListener("change", async () => {
+    setLocale(selector.value);
+    await loadPublicSettings();
+  });
+}
+applyTranslations();
+observeTranslations();
 restoreSession();
-

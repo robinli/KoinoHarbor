@@ -27,6 +27,14 @@ import {
   readSessionCookie,
 } from "./auth.js";
 import { requireEmoji } from "./emoji.js";
+import { isTranslationPending, localizeRecord, normalizeLocale, otherLocale, resolveRequestLocale } from "./localization.js";
+import { localizeMessage } from "./messages.js";
+import {
+  createCloudTasksTranslationQueue,
+  createCloudTaskVerifier,
+  createGoogleTranslator,
+  createInlineTranslationQueue,
+} from "./translation.js";
 
 const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
 const defaultPublicDirectory = path.resolve(moduleDirectory, "..", "public");
@@ -48,6 +56,9 @@ const contentTypes = new Map([
 ]);
 
 function sendJson(response, statusCode, payload) {
+  const body = payload?.message
+    ? { ...payload, message: localizeMessage(payload.message, response.locale) }
+    : payload;
   response.writeHead(statusCode, {
     "Cache-Control": "no-store",
     "Content-Type": "application/json; charset=utf-8",
@@ -55,7 +66,7 @@ function sendJson(response, statusCode, payload) {
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
   });
-  response.end(JSON.stringify(payload));
+  response.end(JSON.stringify(body));
 }
 
 function authenticatedUser(request) {
@@ -184,6 +195,113 @@ export function createApplicationServer(options = {}) {
     : config.environment === "test"
       ? createInMemorySettingsStore({ siteTitle: DEFAULT_SITE_TITLE })
       : createLocalSettingsStore({ siteTitle: DEFAULT_SITE_TITLE }));
+  const translator = options.translator ?? (config.translationProjectId
+    ? createGoogleTranslator(config)
+    : {
+      async translateFields() {
+        throw new Error("尚未設定 Google Cloud Translation 專案。");
+      },
+    });
+  const taskVerifier = options.taskVerifier ?? (config.translationQueueMode === "cloud-tasks"
+    ? createCloudTaskVerifier(config)
+    : { async verify() { return false; } });
+
+  async function translationResource(job) {
+    if (job.resourceType === "settings") return settingsStore.getPublicSettings();
+    if (job.resourceType === "space") return spaceStore.getSpace(job.resourceId);
+    if (job.resourceType === "status") return discussionStore.getStatus(job.resourceId);
+    if (job.resourceType === "thread") return discussionStore.getThread(job.resourceId);
+    if (job.resourceType === "reply") return discussionStore.getReply(job.parentId, job.resourceId);
+    return null;
+  }
+
+  async function completeTranslation(job, values) {
+    if (job.resourceType === "settings") return settingsStore.completeSettingsTranslation(job.revision, values);
+    if (job.resourceType === "space") return spaceStore.completeSpaceTranslation(job.resourceId, job.revision, values);
+    if (job.resourceType === "status") return discussionStore.completeStatusTranslation(job.resourceId, job.revision, values);
+    if (job.resourceType === "thread") return discussionStore.completeThreadTranslation(job.resourceId, job.revision, values);
+    if (job.resourceType === "reply") return discussionStore.completeReplyTranslation(job.parentId, job.resourceId, job.revision, values);
+    return false;
+  }
+
+  async function failTranslation(job, errorCode = "translation_failed") {
+    if (job.resourceType === "settings") return settingsStore.failSettingsTranslation(job.revision, errorCode);
+    if (job.resourceType === "space") return spaceStore.failSpaceTranslation(job.resourceId, job.revision, errorCode);
+    if (job.resourceType === "status") return discussionStore.failStatusTranslation(job.resourceId, job.revision, errorCode);
+    if (job.resourceType === "thread") return discussionStore.failThreadTranslation(job.resourceId, job.revision, errorCode);
+    if (job.resourceType === "reply") return discussionStore.failReplyTranslation(job.parentId, job.resourceId, job.revision, errorCode);
+    return false;
+  }
+
+  async function processTranslationJob(job, { retryCount = 0 } = {}) {
+    if (!job || !["settings", "space", "status", "thread", "reply"].includes(job.resourceType)
+      || typeof job.resourceId !== "string" || !Number.isInteger(job.revision)) {
+      const error = new Error("翻譯工作格式不正確。");
+      error.statusCode = 400;
+      throw error;
+    }
+    const resource = await translationResource(job);
+    if (!resource || resource.translation?.revision !== job.revision || resource.translation.state !== "pending") {
+      return { status: "stale" };
+    }
+    const sourceLocale = normalizeLocale(resource.translation.sourceLocale);
+    const sourceValues = resource.translations?.[sourceLocale] ?? {};
+    const values = Object.fromEntries((resource.translation.pendingFields ?? [])
+      .map((fieldName) => [fieldName, sourceValues[fieldName]])
+      .filter(([, value]) => typeof value === "string" && value.length > 0));
+    try {
+      const translatedValues = await translator.translateFields({
+        sourceLocale,
+        targetLocale: otherLocale(sourceLocale),
+        values,
+      });
+      const applied = await completeTranslation(job, translatedValues);
+      return { status: applied ? "completed" : "stale" };
+    } catch (error) {
+      if (retryCount >= config.translationTaskMaxAttempts - 1) {
+        await failTranslation(job, error.code ? String(error.code) : "translation_failed");
+      }
+      throw error;
+    }
+  }
+
+  const translationQueue = options.translationQueue ?? (config.translationQueueMode === "cloud-tasks"
+    ? createCloudTasksTranslationQueue(config)
+    : config.translationProjectId
+      ? createInlineTranslationQueue((job) => processTranslationJob(job, {
+        retryCount: config.translationTaskMaxAttempts - 1,
+      }))
+      : {
+        async enqueue() {
+          const error = new Error("尚未設定 Google Cloud Translation 專案。");
+          error.code = "translation_not_configured";
+          throw error;
+        },
+      });
+
+  async function enqueueTranslation(resourceType, resource, parentId = null) {
+    if (!isTranslationPending(resource)) return;
+    const job = {
+      parentId,
+      resourceId: resourceType === "settings" ? "site" : resource.id,
+      resourceType,
+      revision: resource.translation.revision,
+    };
+    try {
+      await translationQueue.enqueue(job);
+    } catch (error) {
+      if (error.code !== "translation_not_configured") {
+        console.error("Unable to enqueue translation", { job, message: error.message });
+      }
+      await failTranslation(job, "translation_enqueue_failed");
+    }
+  }
+
+  const localizedSettings = (settings, locale) => localizeRecord(settings, locale, ["siteTitle"]);
+  const localizedSpace = (space, locale) => localizeRecord(space, locale, ["name", "description"]);
+  const localizedStatus = (status, locale) => localizeRecord(status, locale, ["name"]);
+  const localizedThread = (thread, locale) => localizeRecord(thread, locale, ["title", "content"]);
+  const localizedReply = (reply, locale) => localizeRecord(reply, locale, ["content"]);
 
   if (config.seedDevelopmentData && authService.provider === "development") {
     const developmentUsers = authService.listUsers();
@@ -230,20 +348,39 @@ export function createApplicationServer(options = {}) {
         name: "部門D2",
         parentId: department.id,
       }, admin);
+      const seededSpaceTranslations = new Map([
+        [project.id, { description: "Project discussions and tracking", name: "Projects" }],
+        [projectP1.id, { description: "Project P1 discussions and tracking", name: "Project P1" }],
+        [projectP2.id, { description: "Project P2 discussions and tracking", name: "Project P2" }],
+        [department.id, { description: "Department discussions and tracking", name: "Departments" }],
+        [departmentD1.id, { description: "Department D1 discussions and tracking", name: "Department D1" }],
+        [departmentD2.id, { description: "Department D2 discussions and tracking", name: "Department D2" }],
+      ]);
+      for (const [spaceId, values] of seededSpaceTranslations) {
+        spaceStore.completeSpaceTranslation(spaceId, 1, values);
+      }
       for (const space of [project, department]) {
         spaceStore.addMember(space.id, admin, admin);
         spaceStore.addMember(space.id, member, admin);
       }
       const openStatus = discussionStore.createStatus({ name: "未處理", sortOrder: 1 }, admin);
-      discussionStore.createStatus({ name: "處理中", sortOrder: 2 }, admin);
-      discussionStore.createStatus({ name: "已完成", sortOrder: 3 }, admin);
+      const activeStatus = discussionStore.createStatus({ name: "處理中", sortOrder: 2 }, admin);
+      const completedStatus = discussionStore.createStatus({ name: "已完成", sortOrder: 3 }, admin);
+      discussionStore.completeStatusTranslation(openStatus.id, 1, { name: "Unprocessed" });
+      discussionStore.completeStatusTranslation(activeStatus.id, 1, { name: "In progress" });
+      discussionStore.completeStatusTranslation(completedStatus.id, 1, { name: "Completed" });
       for (const space of [project, projectP1, projectP2, department, departmentD1, departmentD2]) {
-        discussionStore.createThread({
+        const thread = discussionStore.createThread({
           content: `這是「${space.name}」的本機測試討論，可用來驗證討論功能。`,
           spaceId: space.id,
           statusId: openStatus.id,
           title: `${space.name} 工作區討論`,
         }, member);
+        const englishName = seededSpaceTranslations.get(space.id).name;
+        discussionStore.completeThreadTranslation(thread.id, 1, {
+          content: `This is a local test discussion for “${englishName}” and can be used to verify discussion features.`,
+          title: `${englishName} workspace discussion`,
+        });
       }
     }
   }
@@ -311,9 +448,10 @@ export function createApplicationServer(options = {}) {
     }));
   }
 
-  async function decorateThreads(threads, currentUser) {
+  async function decorateThreads(threads, currentUser, locale) {
     const withAuthors = await withAuthorDisplayNames(threads);
-    return withReactionSummaries(withAuthors, "thread", currentUser, await reactionsForThreads(threads));
+    return withReactionSummaries(withAuthors, "thread", currentUser, await reactionsForThreads(threads))
+      .map((thread) => localizedThread(thread, locale));
   }
 
   async function unreadRecipientIds(spaceId, authorId) {
@@ -372,6 +510,7 @@ export function createApplicationServer(options = {}) {
         "/api/settings/public",
         "/api/auth/firebase-session",
         "/api/auth/login",
+        "/internal/translation-tasks",
       ]);
       const needsAuthentication = requestUrl.pathname.startsWith("/api/")
         && !publicApiPaths.has(requestUrl.pathname)
@@ -379,6 +518,11 @@ export function createApplicationServer(options = {}) {
       request.authenticatedUser = needsAuthentication
         ? await authService.verifySession(sessionToken)
         : null;
+      request.locale = normalizeLocale(
+        requestUrl.searchParams.get("locale"),
+        resolveRequestLocale(request.headers["accept-language"], request.authenticatedUser?.preferredLocale),
+      );
+      response.locale = request.locale;
 
       if (request.method === "GET" && requestUrl.pathname === "/api/health") {
         sendJson(response, 200, {
@@ -391,8 +535,21 @@ export function createApplicationServer(options = {}) {
         return;
       }
 
+      if (request.method === "POST" && requestUrl.pathname === "/internal/translation-tasks") {
+        if (!await taskVerifier.verify(request.headers.authorization)) {
+          sendJson(response, 403, { error: "forbidden", message: "無效的背景翻譯工作憑證。" });
+          return;
+        }
+        const retryCount = Number.parseInt(request.headers["x-cloudtasks-taskretrycount"] ?? "0", 10);
+        const result = await processTranslationJob(await readJsonBody(request), {
+          retryCount: Number.isInteger(retryCount) ? retryCount : 0,
+        });
+        sendJson(response, 200, result);
+        return;
+      }
+
       if (request.method === "GET" && requestUrl.pathname === "/api/settings/public") {
-        sendJson(response, 200, await settingsStore.getPublicSettings());
+        sendJson(response, 200, localizedSettings(await settingsStore.getPublicSettings(), request.locale));
         return;
       }
 
@@ -484,7 +641,9 @@ export function createApplicationServer(options = {}) {
           return;
         }
 
-        sendJson(response, 200, await settingsStore.updateSettings(body, currentUser));
+        const settings = await settingsStore.updateSettings({ ...body, sourceLocale: request.locale }, currentUser);
+        await enqueueTranslation("settings", settings);
+        sendJson(response, 200, localizedSettings(settings, request.locale));
         return;
       }
 
@@ -525,14 +684,14 @@ export function createApplicationServer(options = {}) {
         }
 
         const body = await readJsonBody(request);
-        const allowedFields = new Set(["displayName", "password"]);
+        const allowedFields = new Set(["displayName", "password", "preferredLocale"]);
 
         if (!body || Array.isArray(body) || typeof body !== "object"
           || Object.keys(body).some((key) => !allowedFields.has(key))
-          || (body.displayName === undefined && body.password === undefined)) {
+          || (body.displayName === undefined && body.password === undefined && body.preferredLocale === undefined)) {
           sendJson(response, 400, {
             error: "invalid_profile_update",
-            message: "只能修改個人名稱與密碼。",
+            message: "只能修改個人名稱、密碼與語系。",
           });
           return;
         }
@@ -611,14 +770,14 @@ export function createApplicationServer(options = {}) {
           sendJson(response, 400, { error: "invalid_space_state", message: "state 只能是 active、deleted 或 all。" });
           return;
         }
-        sendJson(response, 200, { spaces: await spaceStore.listAllSpaces({ state }) });
+        sendJson(response, 200, { spaces: (await spaceStore.listAllSpaces({ state })).map((space) => localizedSpace(space, request.locale)) });
         return;
       }
 
       if (request.method === "GET" && requestUrl.pathname === "/api/spaces/joinable") {
         const currentUser = requireUser(request, response, authService);
         if (!currentUser) return;
-        sendJson(response, 200, { spaces: await spaceStore.listJoinableSpaces(currentUser) });
+        sendJson(response, 200, { spaces: (await spaceStore.listJoinableSpaces(currentUser)).map((space) => localizedSpace(space, request.locale)) });
         return;
       }
 
@@ -629,7 +788,7 @@ export function createApplicationServer(options = {}) {
           return;
         }
 
-        sendJson(response, 200, { spaces: await spaceStore.listSpaces(currentUser) });
+        sendJson(response, 200, { spaces: (await spaceStore.listSpaces(currentUser)).map((space) => localizedSpace(space, request.locale)) });
         return;
       }
 
@@ -640,8 +799,9 @@ export function createApplicationServer(options = {}) {
           return;
         }
 
-        const space = await spaceStore.createSpace(await readJsonBody(request), currentUser);
-        sendJson(response, 201, { space });
+        const space = await spaceStore.createSpace({ ...await readJsonBody(request), sourceLocale: request.locale }, currentUser);
+        await enqueueTranslation("space", space);
+        sendJson(response, 201, { space: localizedSpace(space, request.locale) });
         return;
       }
 
@@ -656,7 +816,7 @@ export function createApplicationServer(options = {}) {
           sendJson(response, 404, { error: "space_not_found", message: "找不到指定的工作區。" });
           return;
         }
-        sendJson(response, 200, { space, status: "restored" });
+        sendJson(response, 200, { space: localizedSpace(space, request.locale), status: "restored" });
         return;
       }
 
@@ -671,7 +831,7 @@ export function createApplicationServer(options = {}) {
         const spaceId = decodeURIComponent(spaceRouteMatch[1]);
         const space = await spaceStore.updateSpace(
           spaceId,
-          changes,
+          { ...changes, sourceLocale: request.locale },
           currentUser,
         );
 
@@ -687,7 +847,8 @@ export function createApplicationServer(options = {}) {
           ? []
           : await spaceStore.removeIneligibleMembers(spaceId, await authService.listUsers());
 
-        sendJson(response, 200, { removedMemberIds, space });
+        await enqueueTranslation("space", space);
+        sendJson(response, 200, { removedMemberIds, space: localizedSpace(space, request.locale) });
         return;
       }
 
@@ -699,7 +860,7 @@ export function createApplicationServer(options = {}) {
           sendJson(response, 404, { error: "space_not_found", message: "找不到指定的工作區。" });
           return;
         }
-        sendJson(response, 200, { space, status: "deleted" });
+        sendJson(response, 200, { space: localizedSpace(space, request.locale), status: "deleted" });
         return;
       }
 
@@ -739,7 +900,7 @@ export function createApplicationServer(options = {}) {
           .filter((candidate) => candidate.parentId === spaceId
             && candidate.accessMode === "inherited"
             && candidate.membershipType === "inherited")
-          .map((candidate) => ({ id: candidate.id, name: candidate.name }));
+          .map((candidate) => ({ id: candidate.id, name: localizedSpace(candidate, request.locale).name }));
         await spaceStore.removeMember(spaceId, currentUser.id);
         sendJson(response, 200, { affectedSpaces, status: "removed" });
         return;
@@ -839,7 +1000,8 @@ export function createApplicationServer(options = {}) {
         const currentUser = requireUser(request, response, authService);
         if (!currentUser) return;
         sendJson(response, 200, {
-          statuses: await discussionStore.listStatuses({ includeInactive: currentUser.role === "admin" }),
+          statuses: (await discussionStore.listStatuses({ includeInactive: currentUser.role === "admin" }))
+            .map((status) => localizedStatus(status, request.locale)),
         });
         return;
       }
@@ -847,8 +1009,9 @@ export function createApplicationServer(options = {}) {
       if (request.method === "POST" && requestUrl.pathname === "/api/thread-statuses") {
         const currentUser = requireUser(request, response, authService, "admin");
         if (!currentUser) return;
-        const status = await discussionStore.createStatus(await readJsonBody(request), currentUser);
-        sendJson(response, 201, { status });
+        const status = await discussionStore.createStatus({ ...await readJsonBody(request), sourceLocale: request.locale }, currentUser);
+        await enqueueTranslation("status", status);
+        sendJson(response, 201, { status: localizedStatus(status, request.locale) });
         return;
       }
 
@@ -858,14 +1021,15 @@ export function createApplicationServer(options = {}) {
         if (!currentUser) return;
         const status = await discussionStore.updateStatus(
           decodeURIComponent(statusRouteMatch[1]),
-          await readJsonBody(request),
+          { ...await readJsonBody(request), sourceLocale: request.locale },
           currentUser,
         );
         if (!status) {
           sendJson(response, 404, { error: "status_not_found", message: "找不到指定的討論狀態。" });
           return;
         }
-        sendJson(response, 200, { status });
+        await enqueueTranslation("status", status);
+        sendJson(response, 200, { status: localizedStatus(status, request.locale) });
         return;
       }
 
@@ -895,7 +1059,7 @@ export function createApplicationServer(options = {}) {
             await discussionStore.listThreads(requestedSpaceId ? [requestedSpaceId] : allowedSpaceIds),
             currentUser,
             allowedSpaceIds,
-          ), currentUser),
+          ), currentUser, request.locale),
         });
         return;
       }
@@ -946,12 +1110,13 @@ export function createApplicationServer(options = {}) {
           sendJson(response, 403, { error: "forbidden", message: "沒有存取此工作區的權限。" });
           return;
         }
-        const thread = await discussionStore.createThread(body, currentUser);
+        const thread = await discussionStore.createThread({ ...body, sourceLocale: request.locale }, currentUser);
         await discussionStore.createUnreadMessages(
           unreadMessage(thread, "thread", thread.id),
           await unreadRecipientIds(thread.spaceId, currentUser.id),
         );
-        sendJson(response, 201, { thread: { ...thread, reactions: [] } });
+        await enqueueTranslation("thread", thread);
+        sendJson(response, 201, { thread: { ...localizedThread(thread, request.locale), reactions: [] } });
         return;
       }
 
@@ -975,8 +1140,8 @@ export function createApplicationServer(options = {}) {
             "reply",
             currentUser,
             reactions,
-          ),
-          thread: withReactionSummaries((await withAuthorDisplayNames([thread])), "thread", currentUser, reactions)[0],
+          ).map((reply) => localizedReply(reply, request.locale)),
+          thread: localizedThread(withReactionSummaries((await withAuthorDisplayNames([thread])), "thread", currentUser, reactions)[0], request.locale),
         });
         return;
       }
@@ -996,12 +1161,13 @@ export function createApplicationServer(options = {}) {
         }
         const thread = await discussionStore.updateThread(
           threadId,
-          await readJsonBody(request),
+          { ...await readJsonBody(request), sourceLocale: request.locale },
           currentUser,
           currentUser.role === "admin",
         );
         const reactions = await reactionsForThreads([thread]);
-        sendJson(response, 200, { thread: withReactionSummaries([thread], "thread", currentUser, reactions)[0] });
+        await enqueueTranslation("thread", thread);
+        sendJson(response, 200, { thread: localizedThread(withReactionSummaries([thread], "thread", currentUser, reactions)[0], request.locale) });
         return;
       }
 
@@ -1019,12 +1185,13 @@ export function createApplicationServer(options = {}) {
           sendJson(response, 403, { error: "forbidden", message: "沒有存取此討論串的權限。" });
           return;
         }
-        const reply = await discussionStore.createReply(threadId, await readJsonBody(request), currentUser);
+        const reply = await discussionStore.createReply(threadId, { ...await readJsonBody(request), sourceLocale: request.locale }, currentUser);
         await discussionStore.createUnreadMessages(
           unreadMessage(thread, "reply", reply.id),
           await unreadRecipientIds(thread.spaceId, currentUser.id),
         );
-        sendJson(response, 201, { reply: { ...reply, reactions: [] } });
+        await enqueueTranslation("reply", reply, threadId);
+        sendJson(response, 201, { reply: { ...localizedReply(reply, request.locale), reactions: [] } });
         return;
       }
 
@@ -1042,7 +1209,7 @@ export function createApplicationServer(options = {}) {
           sendJson(response, 403, { error: "forbidden", message: "沒有存取此討論串的權限。" });
           return;
         }
-        const body = await readJsonBody(request);
+        const body = { ...await readJsonBody(request), sourceLocale: request.locale };
         const reply = await discussionStore.updateReply(
           threadId,
           decodeURIComponent(replyRouteMatch[2]),
@@ -1055,7 +1222,8 @@ export function createApplicationServer(options = {}) {
           return;
         }
         const reactions = await reactionsForThreads([thread]);
-        sendJson(response, 200, { reply: withReactionSummaries([reply], "reply", currentUser, reactions)[0] });
+        await enqueueTranslation("reply", reply, threadId);
+        sendJson(response, 200, { reply: localizedReply(withReactionSummaries([reply], "reply", currentUser, reactions)[0], request.locale) });
         return;
       }
 
@@ -1144,7 +1312,7 @@ export function createApplicationServer(options = {}) {
         const allowedSpaceIds = await accessibleSpaceIds(currentUser);
         sendJson(response, 200, {
           threads: await decorateThreads((await discussionStore.listBookmarks(currentUser.id, allowedSpaceIds))
-            .map((thread) => ({ ...thread, bookmarked: true })), currentUser),
+            .map((thread) => ({ ...thread, bookmarked: true })), currentUser, request.locale),
         });
         return;
       }
@@ -1156,7 +1324,7 @@ export function createApplicationServer(options = {}) {
         const allowedSpaceIds = await accessibleSpaceIds(currentUser);
         sendJson(response, 200, {
           query,
-          threads: await decorateThreads(await markBookmarkedThreads(await discussionStore.search(query, allowedSpaceIds), currentUser, allowedSpaceIds), currentUser),
+          threads: await decorateThreads(await markBookmarkedThreads(await discussionStore.search(query, allowedSpaceIds), currentUser, allowedSpaceIds), currentUser, request.locale),
         });
         return;
       }
