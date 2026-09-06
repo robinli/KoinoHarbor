@@ -8,7 +8,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "check": "node --check src/auth.js && node --check src/attachments.js && node --check src/config.js && node --check src/discussions.js && node --check src/emoji.js && node --check src/firebase-auth.js && node --check src/firebase-stores.js && node --check src/server.js && node --check src/settings.js && node --check src/spaces.js && node --check scripts/migrate-space-hierarchy.js && node --check scripts/migrate-workspace-groups.js && node --check scripts/migrate-workspace-access.js && node --check public/app.js",
+    "check": "node --check src/auth.js && node --check src/attachments.js && node --check src/config.js && node --check src/discussions.js && node --check src/emoji.js && node --check src/firebase-auth.js && node --check src/firebase-stores.js && node --check src/localization.js && node --check src/messages.js && node --check src/server.js && node --check src/settings.js && node --check src/spaces.js && node --check src/translation.js && node --check scripts/migrate-space-hierarchy.js && node --check scripts/migrate-workspace-groups.js && node --check scripts/migrate-workspace-access.js && node --check public/i18n.js && node --check public/app.js",
     "dev": "node --watch src/server.js",
     "migrate:space-hierarchy": "node scripts/migrate-space-hierarchy.js",
     "migrate:workspace-groups": "node scripts/migrate-workspace-groups.js",
@@ -19,11 +19,14 @@
     "verify": "npm run check && npm test"
   },
   "dependencies": {
+    "@google-cloud/tasks": "^7.0.0",
+    "@google-cloud/translate": "^10.0.1",
     "bootstrap": "^5.3.8",
     "bootstrap-icons": "^1.13.1",
     "emoji-picker-element": "1.29.1",
     "emoji-picker-element-data": "1.8.0",
-    "firebase-admin": "^14.2.0"
+    "firebase-admin": "^14.2.0",
+    "google-auth-library": "^11.0.2"
   },
   "overrides": {
     "uuid": "^11.1.1"

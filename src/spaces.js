@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { completeLocalizedMutation, failLocalizedMutation, prepareLocalizedMutation } from "./localization.js";
 
 const VALID_ACCESS_MODES = new Set(["inherited", "restricted"]);
 const VALID_USER_ROLES = new Set(["admin", "member", "guest"]);
@@ -31,6 +32,8 @@ function copySpace(space) {
     sortOrder: space.sortOrder,
     updatedAt: space.updatedAt,
     updatedBy: space.updatedBy,
+    translation: space.translation ? structuredClone(space.translation) : null,
+    translations: space.translations ? structuredClone(space.translations) : null,
   };
 }
 
@@ -97,6 +100,7 @@ export function createInMemorySpaceStore() {
       if (!name) {
         throw validationError("工作區名稱不可為空白。");
       }
+      const localized = prepareLocalizedMutation(null, { description, name }, ["name", "description"], input.sourceLocale, now);
 
       if (parentId && (!spaces.has(parentId) || spaces.get(parentId).deletedAt || spaces.get(parentId).parentId !== null)) {
         throw validationError("父工作區不存在、已刪除或不是頂層工作區。");
@@ -118,6 +122,8 @@ export function createInMemorySpaceStore() {
         sortOrder: normaliseSortOrder(input.sortOrder),
         updatedAt: now.toISOString(),
         updatedBy: actor.id,
+        translation: localized.translation,
+        translations: localized.translations,
       };
       spaces.set(space.id, space);
       memberships.set(space.id, new Map());
@@ -184,12 +190,14 @@ export function createInMemorySpaceStore() {
         throw validationError("工作區階層與存取模式建立後不可變更。");
       }
 
+      const localizedValues = {};
       if (changes.name !== undefined) {
         if (typeof changes.name !== "string" || !changes.name.trim()) {
           throw validationError("工作區名稱不可為空白。");
         }
 
         space.name = changes.name.trim();
+        localizedValues.name = space.name;
       }
 
       if (changes.description !== undefined) {
@@ -198,6 +206,7 @@ export function createInMemorySpaceStore() {
         }
 
         space.description = changes.description.trim();
+        localizedValues.description = space.description;
       }
 
       if (changes.sortOrder !== undefined) {
@@ -218,8 +227,30 @@ export function createInMemorySpaceStore() {
 
       space.updatedAt = now.toISOString();
       space.updatedBy = actor.id;
+      const localized = prepareLocalizedMutation(space, localizedValues, ["name", "description"], changes.sourceLocale, now);
+      space.translation = localized.translation;
+      space.translations = localized.translations;
 
       return copySpace(space);
+    },
+
+    completeSpaceTranslation(spaceId, revision, values, now = new Date()) {
+      const space = spaces.get(spaceId);
+      if (!space) return false;
+      const completed = completeLocalizedMutation(space, revision, values, now);
+      if (!completed.applied) return false;
+      space.translation = completed.translation;
+      space.translations = completed.translations;
+      return true;
+    },
+
+    failSpaceTranslation(spaceId, revision, errorCode, now = new Date()) {
+      const space = spaces.get(spaceId);
+      if (!space) return false;
+      const failed = failLocalizedMutation(space, revision, errorCode, now);
+      if (!failed.applied) return false;
+      space.translation = failed.translation;
+      return true;
     },
 
     deleteSpace(spaceId, actor = { id: "system" }, now = new Date()) {

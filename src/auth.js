@@ -1,4 +1,5 @@
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
+import { normalizeLocale, SUPPORTED_LOCALES } from "./localization.js";
 
 const SESSION_DURATION_SECONDS = 8 * 60 * 60;
 const VALID_ROLES = new Set(["admin", "member", "guest"]);
@@ -30,6 +31,7 @@ function publicUser(user) {
     id: user.id,
     email: user.email,
     displayName: user.displayName,
+    preferredLocale: normalizeLocale(user.preferredLocale),
     role: user.role,
     updatedAt: user.updatedAt,
     updatedBy: user.updatedBy,
@@ -51,6 +53,7 @@ export function createDevelopmentAuth(config) {
       email,
       displayName: entry.displayName?.trim() || email.split("@")[0],
       password: entry.password,
+      preferredLocale: normalizeLocale(entry.preferredLocale),
       role: entry.role,
       updatedAt: now,
       updatedBy: "system",
@@ -160,6 +163,7 @@ export function createDevelopmentAuth(config) {
         email,
         id: randomUUID(),
         password,
+        preferredLocale: normalizeLocale(input.preferredLocale),
         role,
         updatedAt: now,
         updatedBy: actorId,
@@ -214,6 +218,16 @@ export function createDevelopmentAuth(config) {
         }
 
         user.password = changes.password;
+      }
+
+      if (changes.preferredLocale !== undefined) {
+        const preferredLocale = normalizeLocale(changes.preferredLocale, null);
+        if (!preferredLocale || !SUPPORTED_LOCALES.includes(preferredLocale)) {
+          const error = new Error("preferredLocale 必須是 zh-TW 或 en。");
+          error.statusCode = 400;
+          throw error;
+        }
+        user.preferredLocale = preferredLocale;
       }
 
 

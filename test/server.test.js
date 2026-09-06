@@ -78,7 +78,9 @@ test("GET /api/settings/public uses the site title default independently from AP
 
   const response = await fetch(`${testServer.baseUrl}/api/settings/public`);
   assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), { siteTitle: "Koino Harbor" });
+  const payload = await response.json();
+  assert.equal(payload.siteTitle, "Koino Harbor");
+  assert.equal(payload.translationStatus.state, "legacy");
 });
 
 test("site settings are public, persist through the store, and can only be updated by admins", async (context) => {
@@ -88,7 +90,7 @@ test("site settings are public, persist through the store, and can only be updat
 
   const publicResponse = await fetch(`${testServer.baseUrl}/api/settings/public`);
   assert.equal(publicResponse.status, 200);
-  assert.deepEqual(await publicResponse.json(), { siteTitle: "Initial Harbor" });
+  assert.equal((await publicResponse.json()).siteTitle, "Initial Harbor");
 
   const unauthenticatedResponse = await fetch(`${testServer.baseUrl}/api/admin/settings`, {
     method: "PATCH",
@@ -118,8 +120,10 @@ test("site settings are public, persist through the store, and can only be updat
     body: JSON.stringify({ siteTitle: "  <b>New Harbor</b>  " }),
   });
   assert.equal(adminResponse.status, 200);
-  assert.deepEqual(await adminResponse.json(), { siteTitle: "<b>New Harbor</b>" });
-  assert.deepEqual(await settingsStore.getPublicSettings(), { siteTitle: "<b>New Harbor</b>" });
+  const adminPayload = await adminResponse.json();
+  assert.equal(adminPayload.siteTitle, "<b>New Harbor</b>");
+  assert.equal(adminPayload.translationStatus.state, "pending");
+  assert.equal((await settingsStore.getPublicSettings()).siteTitle, "<b>New Harbor</b>");
 });
 
 test("admin site settings reject invalid payloads", async (context) => {
@@ -1316,6 +1320,226 @@ test("portal aggregate APIs return only explicitly accessible Spaces and threads
   assert.deepEqual(guestThreadsPayload.threads, []);
 });
 
+test("user locale projects content and Cloud Tasks completion is revision-safe", async (context) => {
+  const jobs = [];
+  const translationQueue = {
+    async enqueue(job) {
+      jobs.push(structuredClone(job));
+      return { name: `job-${jobs.length}` };
+    },
+  };
+  const translator = {
+    async translateFields({ targetLocale, values }) {
+      return Object.fromEntries(Object.entries(values).map(([fieldName, value]) => [
+        fieldName,
+        `[${targetLocale}] ${value}`,
+      ]));
+    },
+  };
+  const taskVerifier = { async verify(token) { return token === "Bearer valid-task"; } };
+  const testServer = await startTestServer({
+    taskVerifier,
+    translationQueue,
+    translator,
+    config: { translationTaskMaxAttempts: 5 },
+  });
+  context.after(testServer.close);
+
+  const adminLogin = await login(testServer.baseUrl, "admin@example.test", "CorrectPassword!");
+  const createResponse = await fetch(`${testServer.baseUrl}/api/spaces`, {
+    method: "POST",
+    headers: {
+      "Accept-Language": "zh-TW",
+      "Content-Type": "application/json",
+      Cookie: adminLogin.cookie,
+    },
+    body: JSON.stringify({
+      accessMode: "restricted",
+      allowedRoles: ["admin"],
+      description: "工程團隊討論",
+      name: "工程",
+    }),
+  });
+  const created = (await createResponse.json()).space;
+  assert.equal(createResponse.status, 201);
+  assert.equal(created.translationStatus.state, "pending");
+  assert.equal(jobs.length, 1);
+
+  const pendingEnglish = await (await fetch(`${testServer.baseUrl}/api/admin/spaces`, {
+    headers: { "Accept-Language": "en", Cookie: adminLogin.cookie },
+  })).json();
+  assert.equal(pendingEnglish.spaces[0].name, "工程");
+  assert.equal(pendingEnglish.spaces[0].translationStatus.isFallback, true);
+
+  const taskResponse = await fetch(`${testServer.baseUrl}/internal/translation-tasks`, {
+    method: "POST",
+    headers: { Authorization: "Bearer valid-task", "Content-Type": "application/json" },
+    body: JSON.stringify(jobs[0]),
+  });
+  assert.deepEqual(await taskResponse.json(), { status: "completed" });
+
+  const readyEnglish = await (await fetch(`${testServer.baseUrl}/api/admin/spaces`, {
+    headers: { "Accept-Language": "en", Cookie: adminLogin.cookie },
+  })).json();
+  assert.equal(readyEnglish.spaces[0].name, "[en] 工程");
+  assert.equal(readyEnglish.spaces[0].translationStatus.state, "ready");
+
+  const preferenceResponse = await fetch(`${testServer.baseUrl}/api/auth/me`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", Cookie: adminLogin.cookie },
+    body: JSON.stringify({ preferredLocale: "en" }),
+  });
+  assert.equal((await preferenceResponse.json()).user.preferredLocale, "en");
+
+  const preferredEnglish = await (await fetch(`${testServer.baseUrl}/api/admin/spaces`, {
+    headers: { Cookie: adminLogin.cookie },
+  })).json();
+  assert.equal(preferredEnglish.spaces[0].name, "[en] 工程");
+
+  const invalidPreferenceResponse = await fetch(`${testServer.baseUrl}/api/auth/me`, {
+    method: "PATCH",
+    headers: { "Accept-Language": "en", "Content-Type": "application/json", Cookie: adminLogin.cookie },
+    body: JSON.stringify({ preferredLocale: "fr" }),
+  });
+  assert.equal(invalidPreferenceResponse.status, 400);
+  assert.equal((await invalidPreferenceResponse.json()).message, "preferredLocale must be zh-TW or en.");
+
+  const editResponse = await fetch(`${testServer.baseUrl}/api/spaces/${created.id}`, {
+    method: "PATCH",
+    headers: { "Accept-Language": "en", "Content-Type": "application/json", Cookie: adminLogin.cookie },
+    body: JSON.stringify({
+      allowedRoles: ["admin"],
+      archived: false,
+      description: "Engineering discussions",
+      name: "Engineering",
+      sortOrder: 0,
+    }),
+  });
+  assert.equal((await editResponse.json()).space.translationStatus.revision, 2);
+  assert.equal(jobs.length, 2);
+
+  const staleResponse = await fetch(`${testServer.baseUrl}/internal/translation-tasks`, {
+    method: "POST",
+    headers: { Authorization: "Bearer valid-task", "Content-Type": "application/json" },
+    body: JSON.stringify(jobs[0]),
+  });
+  assert.deepEqual(await staleResponse.json(), { status: "stale" });
+
+  const unauthorizedTask = await fetch(`${testServer.baseUrl}/internal/translation-tasks`, {
+    method: "POST",
+    headers: { Authorization: "Bearer invalid", "Content-Type": "application/json" },
+    body: JSON.stringify(jobs[1]),
+  });
+  assert.equal(unauthorizedTask.status, 403);
+
+  const membershipResponse = await fetch(`${testServer.baseUrl}/api/spaces/${created.id}/members`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Cookie: adminLogin.cookie },
+    body: JSON.stringify({ userId: adminLogin.payload.user.id }),
+  });
+  assert.equal(membershipResponse.status, 201);
+
+  const settingsResponse = await fetch(`${testServer.baseUrl}/api/admin/settings`, {
+    method: "PATCH",
+    headers: { "Accept-Language": "en", "Content-Type": "application/json", Cookie: adminLogin.cookie },
+    body: JSON.stringify({ siteTitle: "Harbor Portal" }),
+  });
+  assert.equal(settingsResponse.status, 200);
+
+  const statusResponse = await fetch(`${testServer.baseUrl}/api/thread-statuses`, {
+    method: "POST",
+    headers: { "Accept-Language": "en", "Content-Type": "application/json", Cookie: adminLogin.cookie },
+    body: JSON.stringify({ name: "Review", sortOrder: 1 }),
+  });
+  const status = (await statusResponse.json()).status;
+  assert.equal(statusResponse.status, 201);
+
+  const threadResponse = await fetch(`${testServer.baseUrl}/api/threads`, {
+    method: "POST",
+    headers: { "Accept-Language": "en", "Content-Type": "application/json", Cookie: adminLogin.cookie },
+    body: JSON.stringify({ content: "Please review this", spaceId: created.id, statusId: status.id, title: "Review request" }),
+  });
+  const thread = (await threadResponse.json()).thread;
+  assert.equal(threadResponse.status, 201);
+
+  const replyResponse = await fetch(`${testServer.baseUrl}/api/threads/${thread.id}/replies`, {
+    method: "POST",
+    headers: { "Accept-Language": "en", "Content-Type": "application/json", Cookie: adminLogin.cookie },
+    body: JSON.stringify({ content: "Reviewed" }),
+  });
+  assert.equal(replyResponse.status, 201);
+  assert.deepEqual(jobs.slice(2).map((job) => job.resourceType), ["settings", "status", "thread", "reply"]);
+
+  for (const job of jobs.slice(2)) {
+    const response = await fetch(`${testServer.baseUrl}/internal/translation-tasks`, {
+      method: "POST",
+      headers: { Authorization: "Bearer valid-task", "Content-Type": "application/json" },
+      body: JSON.stringify(job),
+    });
+    assert.deepEqual(await response.json(), { status: "completed" });
+  }
+
+  const chineseSettings = await (await fetch(`${testServer.baseUrl}/api/settings/public?locale=zh-TW`)).json();
+  assert.equal(chineseSettings.siteTitle, "[zh-TW] Harbor Portal");
+  const chineseStatuses = await (await fetch(`${testServer.baseUrl}/api/thread-statuses?locale=zh-TW`, {
+    headers: { Cookie: adminLogin.cookie },
+  })).json();
+  assert.equal(chineseStatuses.statuses.at(-1).name, "[zh-TW] Review");
+  const chineseThread = await (await fetch(`${testServer.baseUrl}/api/threads/${thread.id}?locale=zh-TW`, {
+    headers: { Cookie: adminLogin.cookie },
+  })).json();
+  assert.equal(chineseThread.thread.title, "[zh-TW] Review request");
+  assert.equal(chineseThread.replies[0].content, "[zh-TW] Reviewed");
+});
+
+test("single thread API enforces authentication, membership and soft deletion", async (context) => {
+  const testServer = await startTestServer();
+  context.after(testServer.close);
+  const adminLogin = await login(testServer.baseUrl, "admin@example.test", "CorrectPassword!");
+  const guestLogin = await login(testServer.baseUrl, "guest@example.test", "GuestPassword!");
+
+  const spaceResponse = await fetch(`${testServer.baseUrl}/api/spaces`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Cookie: adminLogin.cookie },
+    body: JSON.stringify({ allowedRoles: ["admin", "guest"], name: "Permalink Space" }),
+  });
+  const { space } = await spaceResponse.json();
+  await fetch(`${testServer.baseUrl}/api/spaces/${space.id}/members`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Cookie: adminLogin.cookie },
+    body: JSON.stringify({ userId: adminLogin.payload.user.id }),
+  });
+  const createResponse = await fetch(`${testServer.baseUrl}/api/threads`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Cookie: adminLogin.cookie },
+    body: JSON.stringify({ content: "Stable URL content", spaceId: space.id, title: "Stable URL" }),
+  });
+  const { thread } = await createResponse.json();
+
+  const allowedResponse = await fetch(`${testServer.baseUrl}/api/threads/${thread.id}`, {
+    headers: { Cookie: adminLogin.cookie },
+  });
+  assert.equal(allowedResponse.status, 200);
+  assert.equal((await allowedResponse.json()).thread.id, thread.id);
+  assert.equal((await fetch(`${testServer.baseUrl}/api/threads/${thread.id}`)).status, 401);
+  assert.equal((await fetch(`${testServer.baseUrl}/api/threads/${thread.id}`, {
+    headers: { Cookie: guestLogin.cookie },
+  })).status, 403);
+  assert.equal((await fetch(`${testServer.baseUrl}/api/threads/missing`, {
+    headers: { Cookie: adminLogin.cookie },
+  })).status, 404);
+
+  const deleteResponse = await fetch(`${testServer.baseUrl}/api/threads/${thread.id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", Cookie: adminLogin.cookie },
+    body: JSON.stringify({ deleted: true }),
+  });
+  assert.equal(deleteResponse.status, 200);
+  assert.equal((await fetch(`${testServer.baseUrl}/api/threads/${thread.id}`, {
+    headers: { Cookie: adminLogin.cookie },
+  })).status, 404);
+});
+
 test("GET / serves the application shell", async (context) => {
   const testServer = await startTestServer();
   context.after(testServer.close);
@@ -1330,6 +1554,14 @@ test("GET / serves the application shell", async (context) => {
   assert.match(body, /\/vendor\/bootstrap-icons\.css/);
   assert.match(body, /\/modern\.css/);
   assert.match(body, /\/favicon\.svg/);
+
+  const threadPageResponse = await fetch(`${testServer.baseUrl}/threads/thread-123`);
+  assert.equal(threadPageResponse.status, 200);
+  assert.match(threadPageResponse.headers.get("content-type"), /text\/html/);
+  assert.match(await threadPageResponse.text(), /Koino Harbor/);
+  const threadPageHeadResponse = await fetch(`${testServer.baseUrl}/threads/thread-123`, { method: "HEAD" });
+  assert.equal(threadPageHeadResponse.status, 200);
+  assert.match(threadPageHeadResponse.headers.get("content-type"), /text\/html/);
 
   const bootstrapResponse = await fetch(`${testServer.baseUrl}/vendor/bootstrap.min.css`);
   assert.equal(bootstrapResponse.status, 200);

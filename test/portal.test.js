@@ -20,6 +20,8 @@ test("portal shell exposes the ordered account, Space, bookmark and admin entry 
     'data-portal-view="admin"',
     'id="dashboard-space-filter"',
     'id="thread-form"',
+    'id="thread-detail-back"',
+    'id="discussion-create-thread"',
     'data-open-thread-form',
     'data-cancel-thread-form',
     'id="status-edit-dialog"',
@@ -64,6 +66,10 @@ test("portal shell exposes the ordered account, Space, bookmark and admin entry 
   assert.match(html, /maxlength="80"/);
   assert.equal((html.match(/data-site-title/g) ?? []).length >= 2, true);
   assert.match(html, /id="forgot-password-form"/);
+  assert.equal((html.match(/data-locale-select/g) ?? []).length, 1);
+  assert.match(html, /id="profile-form"[\s\S]*?name="preferredLocale"[\s\S]*?value="zh-TW"[\s\S]*?value="en"/);
+  assert.doesNotMatch(html, /portal-locale-control/);
+  assert.match(html, /data-site-title data-user-content/);
   assert.match(html, /忘記密碼？/);
   assert.doesNotMatch(html, /id="public-intro"|class="status-card"|class="milestones"|<footer>/);
 });
@@ -93,13 +99,19 @@ test("portal client aggregates accessible threads and disables creation without 
   assert.match(script, /button\.disabled = !activeSpaces\.length/);
   assert.match(script, /portalAdminNav\.hidden = user\.role !== "admin"/);
   assert.match(script, /fetch\("\/api\/auth\/me", \{\s*method: "PATCH"/);
+  assert.match(script, /from "\.\/i18n\.js"/);
+  assert.match(script, /preferredLocale: formData\.get\("preferredLocale"\)/);
+  assert.match(script, /profileForm\.elements\.preferredLocale\.value = signedInUser\.preferredLocale \?\? getLocale\(\)/);
+  assert.match(script, /setLocale\(payload\.user\.preferredLocale\)/);
+  assert.match(script, /function translationBadge\(record\)/);
+  assert.match(script, /dataset\.userContent = ""/);
   assert.match(script, /function showSpaceOverview\(spaceId = null\)/);
   assert.match(script, /function openSpaceDialog\(\{ parent = null, space = null \} = \{\}\)/);
   assert.match(script, /editButton\.textContent = "編輯工作區"/);
-  assert.match(script, /排序:\$\{space\.sortOrder \?\? 0\}/);
+  assert.match(script, /t\("排序:\{order\} \{description\}"/);
   assert.match(script, /spaceEditDialog\.showModal\(\)/);
   assert.match(script, /archived: formData\.get\("archived"\) === "true"/);
-  assert.match(script, /async function showWorkspaceThreads\(spaceId = null\)/);
+  assert.match(script, /async function showWorkspaceThreads\(spaceId = null, \{ updateHistory = true \} = \{\}\)/);
   assert.match(script, /threadSpaceFilter\.value = selectedThreadSpaceId \?\? ""/);
   assert.match(script, /button\.dataset\.spaceId = space\.id/);
   assert.match(script, /prefix\.textContent = "#"/);
@@ -121,6 +133,18 @@ test("portal client aggregates accessible threads and disables creation without 
   assert.match(script, /portalAllSpaces\.addEventListener\("click", \(\) => showWorkspaceThreads\(\)\)/);
   assert.match(script, /setThreadSource\("\/api\/bookmarks", "目前沒有已加入書籤的討論串。"\)/);
   assert.match(script, /function setThreadSource\(sourceUrl = null, emptyMessage = "目前沒有符合條件的討論串。"\)/);
+  assert.match(script, /function threadPath\(threadId\)/);
+  assert.match(script, /return `\/threads\/\$\{encodeURIComponent\(threadId\)\}`/);
+  assert.match(script, /async function showThread\(threadId, \{ updateHistory = true \} = \{\}\)/);
+  assert.match(script, /window\.history\.pushState\(\{ threadId, view: "thread" \}/);
+  assert.match(script, /window\.addEventListener\("popstate"/);
+  assert.match(script, /createThreadPermalink\(thread\)/);
+  assert.match(script, /threads\.map\(\(thread\) => createThreadCard\(thread\)\)/);
+  assert.doesNotMatch(script, /threads\.map\(createThreadCard\)/);
+  assert.match(script, /const prefetchedDetails = initialDetails\?\.thread\?\.id === thread\.id \? initialDetails : null/);
+  assert.match(script, /addMenuItem\("複製連結", "bi-link-45deg"/);
+  assert.match(script, /navigator\.clipboard\.writeText/);
+  assert.match(script, /document\.title = `\$\{thread\.title\} · \$\{savedSiteTitle\}`/);
   assert.match(script, /const url = threadSourceUrl \?\? \(selectedSpaceId \? `\/api\/threads\?spaceId=\$\{encodeURIComponent\(selectedSpaceId\)\}` : "\/api\/threads"\)/);
   assert.match(script, /spaceId: formData\.get\("spaceId"\)/);
   assert.match(script, /function resetPortalData\(\)/);
@@ -169,7 +193,7 @@ test("portal client aggregates accessible threads and disables creation without 
   assert.match(script, /function formatRelativeTime\(value\)/);
   assert.match(script, /elapsedSeconds >= 604_800/);
   assert.match(script, /timestamp\.getFullYear\(\) !== now\.getFullYear\(\)/);
-  assert.match(script, /\$\{amount\} \$\{label\}\$\{amount !== 1 \? "s" : ""\} ago/);
+  assert.match(script, /new Intl\.RelativeTimeFormat\(getLocale\(\), \{ numeric: "auto" \}\)/);
   assert.match(script, /function formatFullDateTime\(value\)/);
   assert.match(script, /author\.textContent = `\$\{authorName\} \/ `;/);
   assert.match(script, /timestamp\.title = formatFullDateTime\(message\.updatedAt\)/);

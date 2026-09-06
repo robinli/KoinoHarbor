@@ -1,6 +1,7 @@
 import { applicationDefault, getApps, initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { FieldValue, getFirestore } from "firebase-admin/firestore";
+import { normalizeLocale, SUPPORTED_LOCALES } from "./localization.js";
 
 const SESSION_DURATION_MS = 8 * 60 * 60 * 1000;
 const VALID_ROLES = new Set(["admin", "member", "guest"]);
@@ -13,6 +14,7 @@ function publicUser(id, data) {
     displayName: data.displayName ?? data.email?.split("@")[0] ?? "user",
     email: data.email ?? "",
     id,
+    preferredLocale: normalizeLocale(data.preferredLocale),
     role: data.role ?? "member",
     updatedAt: data.updatedAt?.toDate?.().toISOString?.() ?? data.updatedAt ?? null,
     updatedBy: data.updatedBy ?? null,
@@ -115,6 +117,7 @@ export function createFirebaseAuth(config, dependencies = {}) {
         createdBy: actorId,
         displayName,
         email,
+        preferredLocale: normalizeLocale(input.preferredLocale),
         role,
         updatedAt: FieldValue.serverTimestamp(),
         updatedBy: actorId,
@@ -154,6 +157,15 @@ export function createFirebaseAuth(config, dependencies = {}) {
           throw error;
         }
         update.displayName = changes.displayName.trim();
+      }
+      if (changes.preferredLocale !== undefined) {
+        const preferredLocale = normalizeLocale(changes.preferredLocale, null);
+        if (!preferredLocale || !SUPPORTED_LOCALES.includes(preferredLocale)) {
+          const error = new Error("preferredLocale 必須是 zh-TW 或 en。");
+          error.statusCode = 400;
+          throw error;
+        }
+        update.preferredLocale = preferredLocale;
       }
       const authChanges = {};
       if (changes.displayName !== undefined) authChanges.displayName = update.displayName;
