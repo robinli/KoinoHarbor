@@ -2156,6 +2156,7 @@ function renderReplyTree(thread, replies, attachments, container, onRefresh) {
 }
 
 function createThreadCard(thread, initialDetails = null) {
+  const prefetchedDetails = initialDetails?.thread?.id === thread.id ? initialDetails : null;
   const card = document.createElement("article");
   card.className = `thread-card${thread.pinned ? " is-pinned" : ""}${thread.archived ? " is-archived" : ""}`;
   card.dataset.messageKey = unreadMessageKey("thread", thread.id);
@@ -2402,7 +2403,7 @@ function createThreadCard(thread, initialDetails = null) {
     titleInput.focus();
   }
 
-  detailsReady = refreshDetails(initialDetails);
+  detailsReady = refreshDetails(prefetchedDetails);
   detailsReady.catch((error) => { setSystemMessage(discussionMessage, error.message, "error"); });
   return card;
 }
@@ -2472,7 +2473,7 @@ async function loadThreads() {
     const threads = selectedStatusId
       ? payload.threads.filter((thread) => thread.statusId === selectedStatusId)
       : payload.threads;
-    threadList.replaceChildren(...threads.map(createThreadCard));
+    threadList.replaceChildren(...threads.map((thread) => createThreadCard(thread)));
     void startReactionRealtime(threads).catch((error) => {
       setSystemMessage(discussionMessage, t("Reaction 即時同步無法啟動：{message}", { message: error.message }), "error");
     });

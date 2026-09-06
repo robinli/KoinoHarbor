@@ -139,6 +139,9 @@ test("portal client aggregates accessible threads and disables creation without 
   assert.match(script, /window\.history\.pushState\(\{ threadId, view: "thread" \}/);
   assert.match(script, /window\.addEventListener\("popstate"/);
   assert.match(script, /createThreadPermalink\(thread\)/);
+  assert.match(script, /threads\.map\(\(thread\) => createThreadCard\(thread\)\)/);
+  assert.doesNotMatch(script, /threads\.map\(createThreadCard\)/);
+  assert.match(script, /const prefetchedDetails = initialDetails\?\.thread\?\.id === thread\.id \? initialDetails : null/);
   assert.match(script, /addMenuItem\("複製連結", "bi-link-45deg"/);
   assert.match(script, /navigator\.clipboard\.writeText/);
   assert.match(script, /document\.title = `\$\{thread\.title\} · \$\{savedSiteTitle\}`/);
